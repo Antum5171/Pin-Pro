@@ -1,0 +1,6 @@
+{
+  "name": "PinPro",
+  "description": "Barangay emergency and complaint alert app for the Philippines with live tanod tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

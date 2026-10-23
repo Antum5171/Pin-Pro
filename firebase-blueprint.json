@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "AnimalReport": {
+      "title": "AnimalReport",
+      "description": "Report of a dangerous animal hazard sighting (snake, aggressive dog, etc.) in the neighborhood",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the animal report pin"
+        },
+        "animalType": {
+          "type": "string",
+          "description": "Category of dangerous animal (SNAKE, AGGRESSIVE_DOG, RABID_ANIMAL, etc.)"
+        },
+        "label": {
+          "type": "string",
+          "description": "Short headline of the hazard report"
+        },
+        "description": {
+          "type": "string",
+          "description": "Details regarding animal appearance, behavior, and threat level"
+        },
+        "locationName": {
+          "type": "string",
+          "description": "Landmark or street location of the sighting"
+        },
+        "xRatio": {
+          "type": "number",
+          "description": "Horizontal coordinate ratio on the neighborhood vector map"
+        },
+        "yRatio": {
+          "type": "number",
+          "description": "Vertical coordinate ratio on the neighborhood vector map"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "DONE"],
+          "description": "Current status of the threat: PENDING (active) or DONE (secured)"
+        },
+        "reportedBy": {
+          "type": "string",
+          "description": "Display name of the reporting community member"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user who submitted the report"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the report was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the report was last updated"
+        }
+      },
+      "required": ["animalType", "label", "description", "status", "userId"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Community member profile in PinPro",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Account registration timestamp"
+        }
+      },
+      "required": ["userId", "displayName"]
+    }
+  },
+  "firestore": {
+    "/pins/{pinId}": {
+      "schema": "AnimalReport",
+      "description": "Collection of dangerous animal sighting pins reported by community members"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile records indexed by auth UID"
+    }
+  }
+}

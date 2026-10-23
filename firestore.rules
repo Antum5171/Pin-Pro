@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidPin(data) {
+      return data.keys().hasAll(['animalType', 'label', 'description', 'status', 'userId']) &&
+             data.animalType is string &&
+             data.label is string &&
+             data.label.size() > 0 && data.label.size() <= 120 &&
+             data.description is string &&
+             data.description.size() <= 500 &&
+             data.status in ['PENDING', 'DONE'] &&
+             data.userId is string &&
+             (!('xRatio' in data) || (data.xRatio is number && data.xRatio >= 0.0 && data.xRatio <= 1.0)) &&
+             (!('yRatio' in data) || (data.yRatio is number && data.yRatio >= 0.0 && data.yRatio <= 1.0));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['userId', 'displayName']) &&
+             data.userId is string &&
+             data.displayName is string &&
+             data.displayName.size() > 0 && data.displayName.size() <= 100;
+    }
+
+    // Dangerous Animal Hazard Report Pins
+    match /pins/{pinId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+                    request.resource.data.userId == request.auth.uid &&
+                    isValidPin(request.resource.data);
+      allow update: if isAuthenticated() &&
+                    isValidPin(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}
