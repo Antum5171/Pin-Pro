@@ -13,6 +13,15 @@ enum class UserRole {
     TANOD
 }
 
+/**
+ * Temporary developer option role allowing role switching on the same device.
+ * Easy to remove before production release.
+ */
+enum class AppRole(val title: String) {
+    RESIDENT("Resident"),
+    OFFICIAL("Barangay Official")
+}
+
 enum class UserStatus {
     ACTIVE,
     SUSPENDED
@@ -39,10 +48,172 @@ data class Barangay(
     val boundaryPolygon: List<LatLng> = emptyList()
 )
 
-enum class TanodAvailability {
-    AVAILABLE,
-    BUSY,
-    OFF_DUTY
+/**
+ * The 5 core incident categories required for PinPro:
+ * 1. Fights (🥊)
+ * 2. Dangerous animals (snake, dog, etc.) (🐍 / 🐕)
+ * 3. Noise complaint (🔊)
+ * 4. Foul smell in the area (💨)
+ * 5. Trash (🗑️)
+ */
+enum class ReportCategory(
+    val displayName: String,
+    val emoji: String,
+    val description: String
+) {
+    FIGHTS("Fights", "🥊", "Street fights, brawls, and physical altercations"),
+    DANGEROUS_ANIMALS("Dangerous Animals", "🐍", "Venomous snakes, aggressive dogs, or rabid animals"),
+    NOISE_COMPLAINT("Noise Complaint", "🔊", "Loud music, karaoke, or late-night disturbance"),
+    FOUL_SMELL("Foul Smell in the Area", "💨", "Pungent odor, burning rubber, toxic fumes, or waste stench"),
+    TRASH("Trash", "🗑️", "Illegal dumpsite, garbage pile, or uncollected waste")
+}
+
+enum class AnimalType(val displayName: String, val emoji: String) {
+    SNAKE("Snake", "🐍"),
+    AGGRESSIVE_DOG("Aggressive Dog", "🐕"),
+    RABID_ANIMAL("Rabid Animal", "⚠️"),
+    VENOMOUS_CREATURE("Venomous Creature", "🦂"),
+    STRAY_PACK("Stray Pack", "🐾"),
+    OTHER_DANGEROUS("Other Dangerous Animal", "⚠️")
+}
+
+/**
+ * Official response status flow:
+ * PENDING -> ON_THE_WAY -> RESOLVED
+ */
+enum class ReportStatus(val label: String, val code: String) {
+    PENDING("Pending", "pending"),
+    ACCEPTED("Accepted", "accepted"),
+    ON_THE_WAY("On the way", "on_the_way"),
+    ARRIVED("Arrived", "arrived"),
+    RESOLVED("Resolved", "resolved");
+
+    companion object {
+        val DONE = RESOLVED
+        fun fromCode(code: String): ReportStatus {
+            return entries.firstOrNull { it.code.equals(code, ignoreCase = true) || it.name.equals(code, ignoreCase = true) }
+                ?: PENDING
+        }
+    }
+}
+
+typealias PinStatus = ReportStatus
+
+data class IncidentReport(
+    val id: String = "",
+    val title: String = "",
+    val category: ReportCategory = ReportCategory.FIGHTS,
+    val animalType: AnimalType = AnimalType.OTHER_DANGEROUS,
+    val label: String = "",
+    val description: String = "",
+    val locationName: String = "",
+    val latLng: LatLng = LatLng(14.6762, 120.5375),
+    val xRatio: Float = 0.5f,
+    val yRatio: Float = 0.5f,
+    val status: ReportStatus = ReportStatus.PENDING,
+    val residentId: String = "",
+    val reportedBy: String = "Resident",
+    val barangayId: String = "sample_hall",
+    val timestamp: Long = System.currentTimeMillis(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val acceptedAt: Long? = null,
+    val arrivedAt: Long? = null,
+    val resolvedAt: Long? = null,
+    val assignedOfficialId: String? = null,
+    val assignedOfficialName: String? = null,
+    val officialLocation: LatLng? = null,
+    val officialHeading: Float = 0f,
+    val officialEtaMinutes: Int? = null,
+    val routeToIncident: List<LatLng> = emptyList(),
+    val isPrimary: Boolean = false
+)
+
+typealias AnimalReportPin = IncidentReport
+typealias CyberPin = IncidentReport
+
+data class ReportEvent(
+    val id: String = "",
+    val reportId: String = "",
+    val type: String = "submitted", // submitted | accepted | on_the_way | location_update | arrived | resolved
+    val actorId: String = "",
+    val actorName: String = "",
+    val actorRole: String = "RESIDENT",
+    val timestamp: Long = System.currentTimeMillis(),
+    val note: String? = null
+)
+
+data class OfficialLocation(
+    val officialId: String = "",
+    val name: String = "",
+    val lat: Double = 14.6762,
+    val lng: Double = 120.5375,
+    val heading: Float = 0f,
+    val reportId: String? = null,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+data class AppNotification(
+    val id: String = "",
+    val recipientId: String = "OFFICIAL", // OFFICIAL or specific userId
+    val reportId: String = "",
+    val type: String = "new_report", // new_report | accepted | on_the_way | arrived | resolved
+    val title: String = "",
+    val message: String = "",
+    val read: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+// Backward-compatible Alert models for Admin / Tanod legacy modules
+enum class AlertCategory(val displayName: String, val emoji: String) {
+    MEDICAL("Medical Emergency", "🚑"),
+    FIRE("Fire Incident", "🔥"),
+    CRIME("Peace & Order / Crime", "🚨"),
+    FLOOD("Flood / Calamity", "🌊"),
+    OTHER("General Assistance", "⚠️")
+}
+
+enum class AlertStatus(val label: String) {
+    RECEIVED("Received"),
+    ASSIGNED("Assigned"),
+    ON_THE_WAY("On the way"),
+    ARRIVED("Arrived"),
+    RESOLVED("Resolved"),
+    CANCELLED("Cancelled")
+}
+
+data class AlertLocation(
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    val address: String = ""
+) : Serializable
+
+data class Alert(
+    val id: String = "",
+    val residentId: String = "",
+    val residentName: String = "",
+    val residentMobile: String = "",
+    val receivingBarangayId: String = "",
+    val fromOutsideHome: Boolean = false,
+    val category: AlertCategory = AlertCategory.OTHER,
+    val note: String = "",
+    val photoUrl: String? = null,
+    val location: AlertLocation = AlertLocation(),
+    val shareLiveLocation: Boolean = true,
+    val status: AlertStatus = AlertStatus.RECEIVED,
+    val assignedTanodId: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val assignedAt: Long? = null,
+    val arrivedAt: Long? = null,
+    val resolvedAt: Long? = null,
+    val etaMinutes: Int? = null,
+    val route: List<LatLng> = emptyList(),
+    val rating: Int? = null
+)
+
+enum class TanodAvailability(val label: String) {
+    AVAILABLE("Available"),
+    BUSY("Responding"),
+    OFF_DUTY("Off Duty")
 }
 
 data class Tanod(
@@ -53,65 +224,17 @@ data class Tanod(
     val availability: TanodAvailability = TanodAvailability.AVAILABLE,
     val currentLocation: LatLng = LatLng(),
     val responseCountToday: Int = 0,
-    val contact: String = "0917-555-0199"
+    val contact: String = ""
 )
 
-enum class AlertCategory(val displayName: String) {
-    MEDICAL("Medical"),
-    FIRE("Fire"),
-    CRIME("Crime / Peace and Order"),
-    FLOOD("Flood / Disaster"),
-    OTHER("Other Complaint")
-}
-
-enum class AlertStatus(val label: String) {
-    RECEIVED("Received"),
-    ASSIGNED("Tanod Assigned"),
-    ON_THE_WAY("On the Way"),
-    ARRIVED("Arrived"),
-    RESOLVED("Resolved"),
-    CANCELLED("Cancelled")
-}
-
-data class AlertLocation(
-    val lat: Double = 0.0,
-    val lng: Double = 0.0,
-    val address: String = ""
-)
-
-data class Alert(
-    val id: String = "",
-    val residentId: String = "",
-    val residentName: String = "",
-    val residentMobile: String = "",
-    val receivingBarangayId: String = "",
-    val fromOutsideHome: Boolean = false,
-    val category: AlertCategory = AlertCategory.MEDICAL,
-    val note: String = "",
-    val photoUrl: String? = null,
-    val location: AlertLocation = AlertLocation(),
-    val shareLiveLocation: Boolean = true,
-    val status: AlertStatus = AlertStatus.RECEIVED,
-    val assignedTanodId: String? = null,
-    val etaMinutes: Int? = null,
-    val route: List<LatLng> = emptyList(),
-    val createdAt: Long = System.currentTimeMillis(),
-    val assignedAt: Long? = null,
-    val arrivedAt: Long? = null,
-    val resolvedAt: Long? = null,
-    val rating: Int? = null
-)
-
-enum class DemoLocationOverride(val label: String, val latLng: LatLng, val defaultBarangayId: String?) {
-    SAMPLE_HALL("Inside Barangay Sample Hall", LatLng(14.6535, 121.0500), "sample_hall"),
-    RIVERSIDE("Inside Barangay Riverside", LatLng(14.6535, 121.0600), "riverside"),
-    OUTSIDE_BOTH("Outside both barangays", LatLng(14.6400, 121.0400), null),
-    REAL_GPS("Use real GPS (Simulated Manila)", LatLng(14.6530, 121.0510), "sample_hall")
+enum class DemoLocationOverride(val label: String, val latLng: LatLng) {
+    SAMPLE_HALL("Inside Barangay Sample Hall", LatLng(14.6538, 121.0505)),
+    RIVERSIDE("Inside Barangay Riverside", LatLng(14.6538, 121.0610)),
+    BORDER_DISPUTED("Border Disputed Sector", LatLng(14.6538, 121.0550))
 }
 
 /**
- * Standard Ray-casting algorithm for Point-In-Polygon detection.
- * Used to determine which Barangay territory a resident is physically within.
+ * Standard Ray-casting algorithm for Point-In-Polygon territory detection.
  */
 fun isPointInPolygon(point: LatLng, polygon: List<LatLng>): Boolean {
     if (polygon.size < 3) return false
@@ -130,38 +253,6 @@ fun isPointInPolygon(point: LatLng, polygon: List<LatLng>): Boolean {
     return inside
 }
 
-enum class AnimalType(val displayName: String, val emoji: String) {
-    SNAKE("Snake", "🐍"),
-    AGGRESSIVE_DOG("Aggressive Dog", "🐕"),
-    RABID_ANIMAL("Rabid Animal", "⚠️"),
-    VENOMOUS_CREATURE("Venomous Creature", "🦂"),
-    STRAY_PACK("Stray Pack", "🐾"),
-    OTHER_DANGEROUS("Other Dangerous Animal", "⚠️")
-}
-
-enum class PinStatus(val label: String) {
-    PENDING("Pending"),
-    DONE("Done")
-}
-
-data class AnimalReportPin(
-    val id: String = "",
-    val animalType: AnimalType = AnimalType.SNAKE,
-    val label: String = "",
-    val description: String = "",
-    val locationName: String = "",
-    val xRatio: Float = 0.5f,
-    val yRatio: Float = 0.5f,
-    val status: PinStatus = PinStatus.PENDING,
-    val reportedBy: String = "Resident",
-    val timestamp: Long = System.currentTimeMillis(),
-    val resolvedAt: Long? = null,
-    val isPrimary: Boolean = false,
-    val category: String = "Animal Alert"
-)
-
-typealias CyberPin = AnimalReportPin
-
 enum class PinProTab {
     HOME,
     MAP,
@@ -170,5 +261,3 @@ enum class PinProTab {
 }
 
 typealias CyberzoneTab = PinProTab
-
-

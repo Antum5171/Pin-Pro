@@ -1,62 +1,163 @@
-# PinPro - Barangay Emergency and Complaint Alert App (Philippines)
+# PinPro - Barangay Incident Reporting & Responder Tracking System
 
-PinPro is a modern, light-themed emergency and complaint dispatch system built for local government units (LGUs) and barangays across the Philippines. Residents can immediately send their geo-located emergency report, automatically routing to whichever barangay they are physically in via point-in-polygon boundary detection, and track the dispatched Barangay Tanod in real-time with an interactive Grab/Lalamove-style map experience.
+![PinPro Logo](Logo.png)
+
+**PinPro** is a modern, real-time community incident reporting and emergency responder tracking application designed for local government units (LGUs) and barangays in the Philippines, starting with **Brgy. Poblacion, Balanga City, Bataan**.
+
+PinPro bridges the gap between residents needing urgent assistance and local barangay officials/tanods. Residents can submit geo-located incident reports with one tap, track dispatched responders in real-time with smooth road-following physics and live ETAs, and receive instant push and in-app notifications at every stage of incident resolution.
 
 ---
 
 ## 🚀 Key Features
 
-1. **Role-Based Workflows**:
-   - **Resident**: 4-step registration with dummy OTP (123456) and dummy ID verification, Data Privacy Act (RA 10173) consent, 1-tap neon green "SEND ALERT" button, multi-category selection (Medical, Fire, Crime / Peace and Order, Flood / Disaster, Other Complaint), photo attachment, live Grab-style map tracking with Tanod badge & contact, status stepper, and 5-star resolution rating.
-   - **Barangay Admin / Dispatcher**: Scoped dashboard for their specific barangay. Real-time alert list with incoming slide-in neon green highlight, interactive map displaying barangay boundaries, hall coordinates, alert pins, and active tanods, instant Tanod dispatching, resident suspension/reinstatement, tanod roster management, and "Simulate incoming alert".
-   - **Tanod Mobile View**: Dedicated interface for assigned responders. Status controls ("Accept", "On the way" with smooth animated route simulation, "Arrived", "Resolved"), direct resident calling/messaging.
-2. **Multi-Barangay Geo-Routing**:
-   - Point-in-polygon detection for **Barangay Sample Hall** and **Barangay Riverside**.
-   - If a resident sends an alert from inside a neighboring barangay, the alert is automatically routed to the physical barangay with a "Sent from outside home barangay" badge.
-   - If outside covered barangays, 911 quick-call and fallback dispatch are presented.
-3. **Demo & Simulation Controls**:
-   - Floating Demo Panel to switch between roles or 1-click log in as seeded accounts (Maria Santos, Jose Reyes, Liza Ramos, Kapitan Ramon Villanueva, Kapitana Elena Cruz, Tanod Berto Aquino, etc.).
-   - "Demo: set my location" override selector ("Inside Barangay Sample Hall", "Inside Barangay Riverside", "Outside both barangays", "Use real GPS").
-   - "Seed demo data" and "Reset demo" buttons.
+- 📍 **Instant Incident Reporting**: One-tap reporting for Medical, Fire, Peace & Order (Fights), Flood/Disaster, and General Complaints with precise pin placement on interactive maps of Brgy. Poblacion.
+- 🔔 **Real-Time Notification System**: Instant alerts sent to all barangay officials when a resident submits a report, and direct update notifications to residents as officials accept, respond, arrive, and resolve incidents.
+- 🚘 **Smooth Responder Simulation & Driver View**: Realistic vehicle movement along actual road paths with 60 FPS interpolation, cornering speed adjustment, smooth heading rotation, camera follow mode, and dynamic route trimming.
+- 🗺️ **Compact & Responsive Map Interface**: Single-row adaptive map header with quick map style switching (Streets, Satellite, Dark), single-tap filters, and safe-area aware top spacing.
+- 📱 **Expandable Tracking Sheet**: Draggable bottom sheet panel (35dvh collapsed, 60dvh expanded) with status timeline, ETA badge, distance indicator, and speed controls (1x, 2x, 4x).
+- 🔐 **Secure Multi-Role Access**: Google Sign-In authentication via Jetpack Credential Manager and Firebase Firestore zero-trust security rules separating Resident and Official privileges.
+- 📋 **Incident History & Records**: Automatic archiving of resolved reports into searchable historical records with audit logs.
 
 ---
 
-## 🎨 Visual Design Guidelines
+## 🛠️ Tech Stack
 
-- **Primary Accent**: Neon Green (`#39FF14`) used strictly as fill for key action buttons, active tags, route polylines, and live location pins.
-- **Background**: Clean crisp white (`#FFFFFF`) and surfaces (`#F5F6F5`) with subtle borders (`#E4E6E4`).
-- **Typography**: Google Fonts Inter with strictly 3 font sizes:
-  - **Large (28sp)**: Screen titles, ETA, key numbers.
-  - **Base (16sp)**: Body text, buttons, inputs, list items.
-  - **Small (12sp)**: Labels, timestamps, error text, helper text.
-- **Touch Targets**: Minimum 48dp x 48dp on all interactive elements.
+| Domain | Technology / Library |
+| :--- | :--- |
+| **Language** | Kotlin 1.9+ |
+| **UI Framework** | Jetpack Compose (Material Design 3) |
+| **Architecture** | MVVM (Model-View-ViewModel) with StateFlow |
+| **Map Rendering** | Compose Canvas & Osmdroid Tile Engine (Balanga City, Bataan Focus) |
+| **Backend & Database** | Firebase Firestore (Cloud DB) |
+| **Authentication** | Google Sign-In (Jetpack `CredentialManager`) & Firebase Auth |
+| **Async & Loops** | Kotlin Coroutines & Flow (`requestAnimationFrame` equivalent animation loops) |
+| **Testing** | Robolectric Local JVM Testing Framework |
+| **Min / Target SDK** | Android 7.0 (API 24) / Android 14 (API 34) |
 
 ---
 
-## 🛠️ Firebase Backend Setup (Production & Web / Cloud Deployments)
+## ⚡ Quick Start
 
-When deploying with live Cloud Firestore & Firebase Auth:
-
-1. **Firebase Console**:
-   - Create a project in [Firebase Console](https://console.firebase.google.com).
-   - Enable **Authentication** -> Sign-in method -> Email/Password.
-   - Enable **Cloud Firestore** in Production mode.
-   - Enable **Firebase Storage** (or use client-side compressed base64).
-2. **Environment Variables**:
-   Provide the following configuration variables:
-   ```env
-   VITE_FIREBASE_API_KEY=your_api_key
-   VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-   VITE_FIREBASE_PROJECT_ID=your_project_id
-   VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-   VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-   VITE_FIREBASE_APP_ID=your_app_id
-   VITE_GOOGLE_MAPS_API_KEY=your_maps_api_key_optional
-   ```
-3. **Deploy Security Rules & Indexes**:
+1. **Clone the Repository**:
    ```bash
-   firebase deploy --only firestore:rules
-   firebase deploy --only firestore:indexes
+   git clone https://github.com/your-org/pinpro-android.git
+   cd pinpro-android
    ```
-4. **Seed Demo Data**:
-   Use the built-in "Seed demo data" action to instantly populate both barangays, official accounts, tanods, and past incident histories.
+
+2. **Configure Environment Secrets**:
+   Copy `.env.example` to your active environment or configure variables in AI Studio Secrets / Gradle:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Build the Project**:
+   ```bash
+   gradle assembleDebug
+   ```
+
+4. **Run Unit Tests**:
+   ```bash
+   gradle :app:testDebugUnitTest
+   ```
+
+For detailed setup, Firebase provisioning, and map key instructions, see [docs/SETUP.md](docs/SETUP.md).
+
+---
+
+## 👥 User Roles & Permissions
+
+| Feature / Action | Resident | Barangay Official / Tanod |
+| :--- | :---: | :---: |
+| Submit New Incident Report | ✅ | ❌ |
+| View Active Reports Map | ✅ (Own + General) | ✅ (All Barangay Incidents) |
+| Receive New Report Notification | ❌ | ✅ (All Officials in Barangay) |
+| Accept Incident Dispatch | ❌ | ✅ |
+| Simulate / Control Responder Vehicle | ❌ | ✅ |
+| View Live Responder ETA & Route | ✅ | ✅ |
+| Auto-Arrive (GPS < 30m / Simulation End) | ❌ | ✅ (Automatic) |
+| Mark Incident Resolved | ❌ | ✅ |
+| Access Resolved Records & History | ✅ (Personal) | ✅ (Barangay-wide Archive) |
+
+---
+
+## 📸 Application Screenshots
+
+| Screen | Description | Path |
+| :--- | :--- | :--- |
+| **Home Dashboard** | Overview of recent incidents, quick report button, and barangay emergency contacts. | `docs/images/home.png` |
+| **Map View** | Interactive map of Brgy. Poblacion with incident markers and compact top edge header. | `docs/images/map.png` |
+| **Responder Tracking** | Live driver view showing smooth vehicle rotation, dynamic route trimming, and ETA sheet. | `docs/images/tracking.png` |
+| **Records Archive** | Searchable list of resolved incidents with status timeline histories. | `docs/images/records.png` |
+
+---
+
+## 📁 Directory Structure
+
+```text
+├── app/
+│   ├── src/
+│   │   ├── main/
+│   │   │   ├── java/com/example/
+│   │   │   │   ├── MainActivity.kt               # Application entry point & edge-to-edge window setup
+│   │   │   │   ├── data/
+│   │   │   │   │   ├── model/Models.kt           # Data classes: Report, Official, Event, Barangay
+│   │   │   │   │   └── repository/
+│   │   │   │   │       └── PinProRepository.kt   # Central state repository & Firestore data layer
+│   │   │   │   ├── ui/
+│   │   │   │   │   ├── cyberzone/
+│   │   │   │   │   │   ├── BalangaGoogleMapCanvas.kt         # Map tile engine & smooth vehicle canvas painter
+│   │   │   │   │   │   ├── CyberzoneMainDashboard.kt        # Primary navigation & responsive layout container
+│   │   │   │   │   │   ├── CyberzoneMapView.kt              # Interactive map screen, header & bottom sheet
+│   │   │   │   │   │   ├── CyberzoneOtherTabs.kt            # Reports list, Submit form, Records & Profile tabs
+│   │   │   │   │   │   └── GoogleMapsLocationPickerScreen.kt# Interactive location picker dialog
+│   │   │   │   │   └── theme/
+│   │   │   │   │       └── Theme.kt             # Material Design 3 color schemes & typography
+│   │   │   │   └── util/                         # Helper utilities (Geocoding, Physics, Formatting)
+│   │   │   ├── res/
+│   │   │   │   ├── drawable/                     # App launcher icons & vector drawables
+│   │   │   │   └── values/strings.xml           # App string resources
+│   │   │   └── AndroidManifest.xml              # Manifest, permissions & launcher activity configuration
+│   └── build.gradle.kts                         # App module Gradle configuration & dependencies
+├── docs/                                        # Technical documentation
+│   ├── ARCHITECTURE.md                          # System design, state flow & sequence diagrams
+│   ├── MAP_AND_TRACKING.md                      # Canvas map rendering, route interpolation & physics math
+│   ├── DATABASE.md                              # Firestore schema, status state machine & security rules
+│   ├── NOTIFICATIONS.md                         # Real-time event notification engine & matrix
+│   ├── SETUP.md                                 # Environment setup, Firebase provisioning & build steps
+│   ├── TESTING.md                               # Robolectric test suite & CUJ verification scripts
+│   └── TROUBLESHOOTING.md                       # Frequently encountered issues & diagnostic solutions
+├── build.gradle.kts                             # Root build configuration
+├── firestore.rules                              # Firebase Firestore zero-trust security rules
+├── firestore.blueprint.json                     # Firebase database blueprint schema
+├── Logo.png                                     # Official PinPro application brand logo
+├── CHANGELOG.md                                 # Release history and feature changelog
+└── README.md                                    # Main project documentation page
+```
+
+---
+
+## 📚 Documentation Index
+
+For in-depth architecture and development guides, refer to the documentation in the `docs/` folder:
+
+1. [Architecture & System Flow](docs/ARCHITECTURE.md) - System overview, component breakdown, state flows, and Mermaid sequence diagrams.
+2. [Map Rendering & Smooth Tracking](docs/MAP_AND_TRACKING.md) - Physics calculations, speed interpolation, heading rotation math, dynamic route trimming, and driver camera follow.
+3. [Database & Security Rules](docs/DATABASE.md) - Firestore schema definitions, status state machine rules, and security guidelines.
+4. [Notification Engine](docs/NOTIFICATIONS.md) - Detailed event matrix, payload structures, in-app banners, and system alerts.
+5. [Setup & Deployment Guide](docs/SETUP.md) - Step-by-step setup guide for building, running, and configuring API keys.
+6. [Testing Guide](docs/TESTING.md) - Robolectric testing suite, CUJ test scripts, and log screen instructions.
+7. [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Solutions for common map, location, notification, and build errors.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see the `LICENSE` file for details.
+
+---
+
+## 🤝 Credits & Acknowledgments
+
+- **Barangay Poblacion, Balanga City, Bataan** - Community domain context and geographic location mapping.
+- **OpenStreetMap & Osmdroid** - Map tile provider and geographical coordinates data.
+- **Android Jetpack & Material Design 3** - Modern Android UI components and styling guidelines.

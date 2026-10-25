@@ -144,10 +144,7 @@ fun TanodScreen(
                     Switch(
                         checked = tanodRecord.availability != TanodAvailability.OFF_DUTY,
                         onCheckedChange = { isOnDuty ->
-                            repository.toggleTanodAvailability(
-                                tanodRecord.uid,
-                                if (isOnDuty) TanodAvailability.AVAILABLE else TanodAvailability.OFF_DUTY
-                            )
+                            repository.toggleTanodAvailability(tanodRecord.uid)
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color(0xFF0B0B0B),

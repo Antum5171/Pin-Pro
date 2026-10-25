@@ -2,31 +2,40 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Cyberzone Aesthetic Tokens
-val CyberzoneBackground = Color(0xFF121212) // Main dark grey background
-val CyberzoneSurface = Color(0xFF1E1E1E)    // Dark card surface
-val CyberzoneSurfaceElevated = Color(0xFF252525)
-val CyberzoneBorder = Color(0xFF2E2E2E)     // Subtle wireframe border
-val CyberzoneBorderSubtle = Color(0xFF222222)
+/**
+ * PinPro Design Tokens:
+ * Refined dark grey theme (not pure black) with emerald green accent used sparingly
+ * for primary actions, active states, and route lines.
+ */
+val CyberzoneBackground = Color(0xFF16181D)         // Refined dark grey background
+val CyberzoneSurface = Color(0xFF20242B)            // Card surface
+val CyberzoneSurfaceElevated = Color(0xFF292F38)    // Elevated card surface / input field
+val CyberzoneBorder = Color(0xFF353D49)             // Subtle 1px border
+val CyberzoneBorderSubtle = Color(0xFF272D36)
 
-// Electric Green Accents (#00FF66)
-val CyberzoneElectricGreen = Color(0xFF00FF66)
-val CyberzoneElectricGreenBright = Color(0xFF33FF85)
-val CyberzoneElectricGreenDark = Color(0xFF00CC52)
-val CyberzoneElectricGreenGlow = Color(0x6600FF66)
-val CyberzoneElectricGreenSubtle = Color(0x2600FF66)
+// Refined Emerald Green Accent (#10B981) used sparingly
+val CyberzoneElectricGreen = Color(0xFF10B981)
+val CyberzoneElectricGreenBright = Color(0xFF34D399)
+val CyberzoneElectricGreenDark = Color(0xFF059669)
+val CyberzoneElectricGreenGlow = Color(0x3310B981)
+val CyberzoneElectricGreenSubtle = Color(0x1F10B981)
 
 // Text tokens
-val CyberzoneTextPrimary = Color(0xFFFFFFFF)
-val CyberzoneTextSecondary = Color(0xFF9E9E9E)
-val CyberzoneTextMuted = Color(0xFF6E6E6E)
-val CyberzoneTextOnGreen = Color(0xFF121212)
+val CyberzoneTextPrimary = Color(0xFFF3F4F6)
+val CyberzoneTextSecondary = Color(0xFF9CA3AF)
+val CyberzoneTextMuted = Color(0xFF6B7280)
+val CyberzoneTextOnGreen = Color(0xFF111827)
 
-// Status & alerts
-val CyberzoneError = Color(0xFFFF453A)
-val CyberzoneWarning = Color(0xFFFFD60A)
+// Status colors
+val StatusPending = Color(0xFFF59E0B)       // Amber
+val StatusOnTheWay = Color(0xFF3B82F6)      // Blue
+val StatusDone = Color(0xFF10B981)          // Muted Green
+val StatusUrgent = Color(0xFFEF4444)        // Red
 
-// Legacy aliases for full backward compatibility
+val CyberzoneError = StatusUrgent
+val CyberzoneWarning = StatusPending
+
+// Aliases for full compatibility
 val PinProNeonGreen = CyberzoneElectricGreen
 val PinProNeonGreenPressed = CyberzoneElectricGreenDark
 val PinProNeonGreenSubtle = CyberzoneElectricGreenSubtle

@@ -45,12 +45,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import com.example.data.repository.PinProRepository
+import androidx.compose.runtime.collectAsState
+import com.example.ui.cyberzone.GoogleMapsLocationPickerScreen
 import com.example.ui.cyberzone.CyberzoneLoginScreen
 import com.example.ui.cyberzone.CyberzoneMainDashboard
 import com.example.ui.cyberzone.signOutUser
 import com.example.ui.theme.CyberzoneBackground
 import com.example.ui.theme.CyberzoneBorder
 import com.example.ui.theme.CyberzoneElectricGreen
+import com.example.ui.theme.CyberzoneElectricGreenSubtle
 import com.example.ui.theme.CyberzoneSurface
 import com.example.ui.theme.CyberzoneTextPrimary
 import com.example.ui.theme.CyberzoneTextSecondary
@@ -59,19 +62,40 @@ import com.example.ui.theme.MyApplicationTheme
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
+import com.example.util.configureAppCheck
 import com.google.firebase.firestore.FirebaseFirestore
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Step 1: Configure App Check with launch intent before any UI or Firebase operations
+        configureAppCheck(this, intent)
         enableEdgeToEdge()
+
+        createNotificationChannel()
 
         val firestoreDb = try {
             val dbId = getString(R.string.firestore_database_id)
-            FirebaseFirestore.getInstance(dbId)
+            if (dbId.isBlank() || dbId == "(default)") {
+                FirebaseFirestore.getInstance()
+            } else {
+                FirebaseFirestore.getInstance(dbId)
+            }
         } catch (_: Exception) {
-            null
+            try {
+                FirebaseFirestore.getInstance()
+            } catch (_: Exception) {
+                null
+            }
         }
 
         val repository = PinProRepository(firestore = firestoreDb)
@@ -82,6 +106,20 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "PinPro Reports Channel"
+            val descriptionText = "Notifications for barangay incident reports and official updates"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel("pinpro_reports_channel", name, importance).apply {
+                description = descriptionText
+            }
+            val notificationManager: NotificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
 }
 
 @Composable
@@ -90,11 +128,25 @@ fun PinProApp(repository: PinProRepository) {
     val coroutineScope = rememberCoroutineScope()
     val credentialManager = remember { CredentialManager.create(context) }
 
+    val requestPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     var currentUserDisplayName by remember {
         mutableStateOf<String?>(
             Firebase.auth.currentUser?.let { it.displayName ?: it.email ?: "Community Member" }
         )
     }
+
+    val isLocationConfirmed by repository.isLocationConfirmed.collectAsState()
+    val confirmedBarangay by repository.confirmedBarangay.collectAsState()
+    val currentRole by repository.currentRole.collectAsState()
 
     DisposableEffect(Unit) {
         val authListener = FirebaseAuth.AuthStateListener { auth ->
@@ -111,61 +163,6 @@ fun PinProApp(repository: PinProRepository) {
 
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = {
-            Column(modifier = Modifier.background(CyberzoneBackground)) {
-                // Top PinPro Control Strip (Top-Right Barangay Switcher Removed)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(CyberzoneBackground)
-                        .border(1.dp, CyberzoneBorder)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(CyberzoneElectricGreen)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "PINPRO • ANIMAL HAZARD RADAR",
-                            fontFamily = InterFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            letterSpacing = 1.sp,
-                            color = CyberzoneElectricGreen
-                        )
-                    }
-
-                    if (currentUserDisplayName != null) {
-                        // Quick Sign Out Button
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(CyberzoneSurface)
-                                .border(1.dp, CyberzoneBorder, RoundedCornerShape(8.dp))
-                                .clickable {
-                                    signOutUser(context, credentialManager, coroutineScope) {
-                                        currentUserDisplayName = null
-                                    }
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "Sign Out",
-                                fontFamily = InterFontFamily,
-                                fontSize = 12.sp,
-                                color = CyberzoneTextSecondary
-                            )
-                        }
-                    }
-                }
-            }
-        },
         containerColor = CyberzoneBackground,
         modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
@@ -184,16 +181,30 @@ fun PinProApp(repository: PinProRepository) {
                 label = "authTransition"
             ) { isLoggedIn ->
                 if (isLoggedIn) {
-                    // Main Dangerous Animal Hazard Dashboard & Map View
-                    CyberzoneMainDashboard(
-                        username = currentUserDisplayName ?: "Resident",
-                        repository = repository,
-                        onLogout = {
-                            signOutUser(context, credentialManager, coroutineScope) {
-                                currentUserDisplayName = null
+                    if (!isLocationConfirmed) {
+                        // Required Google Maps-style GPS location onboarding picker upon logging in
+                        GoogleMapsLocationPickerScreen(
+                            repository = repository,
+                            onLocationConfirmed = { _, _ ->
+                                // Location and Barangay assigned; transition to main dashboard
                             }
-                        }
-                    )
+                        )
+                    } else {
+                        // Main Dangerous Animal Hazard Dashboard & Map View
+                        CyberzoneMainDashboard(
+                            username = currentUserDisplayName ?: "Resident",
+                            repository = repository,
+                            onOpenLocationPicker = {
+                                repository.requestLocationReSelection()
+                            },
+                            onLogout = {
+                                signOutUser(context, credentialManager, coroutineScope) {
+                                    currentUserDisplayName = null
+                                    repository.logout()
+                                }
+                            }
+                        )
+                    }
                 } else {
                     // Sleek Login Screen with Google Sign-In & Community Auth
                     CyberzoneLoginScreen(

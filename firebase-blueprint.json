@@ -1,98 +1,102 @@
 {
   "entities": {
-    "AnimalReport": {
-      "title": "AnimalReport",
-      "description": "Report of a dangerous animal hazard sighting (snake, aggressive dog, etc.) in the neighborhood",
+    "Report": {
+      "title": "Report",
+      "description": "Community incident report submitted by a resident in PinPro",
       "type": "object",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier of the animal report pin"
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "address": { "type": "string" }
+          }
         },
-        "animalType": {
-          "type": "string",
-          "description": "Category of dangerous animal (SNAKE, AGGRESSIVE_DOG, RABID_ANIMAL, etc.)"
-        },
-        "label": {
-          "type": "string",
-          "description": "Short headline of the hazard report"
-        },
-        "description": {
-          "type": "string",
-          "description": "Details regarding animal appearance, behavior, and threat level"
-        },
-        "locationName": {
-          "type": "string",
-          "description": "Landmark or street location of the sighting"
-        },
-        "xRatio": {
-          "type": "number",
-          "description": "Horizontal coordinate ratio on the neighborhood vector map"
-        },
-        "yRatio": {
-          "type": "number",
-          "description": "Vertical coordinate ratio on the neighborhood vector map"
-        },
+        "residentId": { "type": "string" },
+        "residentName": { "type": "string" },
         "status": {
           "type": "string",
-          "enum": ["PENDING", "DONE"],
-          "description": "Current status of the threat: PENDING (active) or DONE (secured)"
+          "enum": ["pending", "accepted", "on_the_way", "arrived", "resolved"]
         },
-        "reportedBy": {
-          "type": "string",
-          "description": "Display name of the reporting community member"
-        },
-        "userId": {
-          "type": "string",
-          "description": "Firebase Auth UID of the user who submitted the report"
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Timestamp when the report was created"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Timestamp when the report was last updated"
-        }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "acceptedAt": { "type": "string", "format": "date-time" },
+        "arrivedAt": { "type": "string", "format": "date-time" },
+        "resolvedAt": { "type": "string", "format": "date-time" },
+        "assignedOfficialId": { "type": "string" },
+        "assignedOfficialName": { "type": "string" }
       },
-      "required": ["animalType", "label", "description", "status", "userId"]
+      "required": ["title", "category", "description", "residentId", "status"]
     },
-    "UserProfile": {
-      "title": "UserProfile",
-      "description": "Community member profile in PinPro",
+    "ReportEvent": {
+      "title": "ReportEvent",
+      "description": "Lifecycle event log entry for an incident report in PinPro",
       "type": "object",
       "properties": {
-        "userId": {
+        "id": { "type": "string" },
+        "reportId": { "type": "string" },
+        "type": {
           "type": "string",
-          "description": "Firebase Auth UID"
+          "enum": ["submitted", "accepted", "on_the_way", "location_update", "arrived", "resolved"]
         },
-        "displayName": {
-          "type": "string",
-          "description": "User display name"
-        },
-        "email": {
-          "type": "string",
-          "description": "User email address"
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Account registration timestamp"
-        }
+        "actorId": { "type": "string" },
+        "actorName": { "type": "string" },
+        "actorRole": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "note": { "type": "string" }
       },
-      "required": ["userId", "displayName"]
+      "required": ["reportId", "type", "actorId", "actorRole"]
+    },
+    "OfficialLocation": {
+      "title": "OfficialLocation",
+      "description": "Live GPS location record for a barangay official",
+      "type": "object",
+      "properties": {
+        "officialId": { "type": "string" },
+        "name": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "heading": { "type": "number" },
+        "reportId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["officialId", "name", "lat", "lng"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app alert notification for residents or officials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "reportId": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientId", "reportId", "message"]
     }
   },
   "firestore": {
-    "/pins/{pinId}": {
-      "schema": "AnimalReport",
-      "description": "Collection of dangerous animal sighting pins reported by community members"
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "Community incident reports"
     },
-    "/users/{userId}": {
-      "schema": "UserProfile",
-      "description": "User profile records indexed by auth UID"
+    "/report_events/{eventId}": {
+      "schema": "ReportEvent",
+      "description": "Audit trail log events"
+    },
+    "/official_locations/{officialId}": {
+      "schema": "OfficialLocation",
+      "description": "Live official locations"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "In-app notifications"
     }
   }
 }

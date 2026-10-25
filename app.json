@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "PinPro",
+    "slug": "pin-pro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./public/assets/ic_launcher.png",
+    "userInterfaceStyle": "dark",
+    "owner": "antum",
+    "extra": {
+      "eas": {
+        "projectId": "ceba2494-b93e-44fc-8779-d429ac104392"
+      },
+      "firebase": {
+        "apiKey": "AIzaSyAwvm2PtYVwJvsVAiF564fBg-W0VooMCD4",
+        "authDomain": "pin-pro-c64cc.firebaseapp.com",
+        "projectId": "pin-pro-c64cc",
+        "storageBucket": "pin-pro-c64cc.firebasestorage.app",
+        "messagingSenderId": "583765829548",
+        "appId": "1:583765829548:web:e70be0e860d5a170033c09",
+        "measurementId": "G-47GCG4ZL7G"
+      }
+    },
+    "android": {
+      "package": "com.aistudio.pinpro.alert",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAwvm2PtYVwJvsVAiF564fBg-W0VooMCD4"
+        }
+      }
+    }
+  }
+}

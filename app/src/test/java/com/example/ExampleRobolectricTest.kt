@@ -3,6 +3,8 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.LatLng
+import com.example.data.model.ReportCategory
+import com.example.data.model.ReportStatus
 import com.example.data.model.isPointInPolygon
 import com.example.data.repository.PinProRepository
 import org.junit.Assert.assertEquals
@@ -28,78 +30,98 @@ class ExampleRobolectricTest {
     @Test
     fun `point in polygon correctly detects barangay boundary`() {
         val polygon = listOf(
-            LatLng(14.6590, 121.0440),
-            LatLng(14.6590, 121.0550),
-            LatLng(14.6480, 121.0550),
-            LatLng(14.6480, 121.0440)
+            LatLng(14.6900, 120.5200),
+            LatLng(14.6900, 120.5400),
+            LatLng(14.6650, 120.5400),
+            LatLng(14.6650, 120.5200)
         )
         // Inside point
-        val insidePoint = LatLng(14.6530, 121.0500)
+        val insidePoint = LatLng(14.6762, 120.5375)
         assertTrue(isPointInPolygon(insidePoint, polygon))
     }
 
     @Test
-    fun `repository initializes with seeded barangays and accounts`() {
+    fun `repository initializes with seeded barangays and zero mock reports`() {
         val repo = PinProRepository()
         assertEquals(2, repo.barangays.value.size)
         assertTrue(repo.users.value.isNotEmpty())
-        assertTrue(repo.tanods.value.isNotEmpty())
-        assertNotNull(repo.currentUser.value)
+        assertTrue("Initial repository reports must be empty (0 mock data)", repo.animalReportPins.value.isEmpty())
     }
 
     @Test
-    fun `repository contains dangerous animal hazard report pins with pending status`() {
+    fun `submitting report adds new location pin with pending status and event log`() {
         val repo = PinProRepository()
-        val animalPins = repo.animalReportPins.value
-        assertTrue("Must contain initial dangerous animal reports", animalPins.isNotEmpty())
-        val snakePin = animalPins.firstOrNull { it.animalType == com.example.data.model.AnimalType.SNAKE }
-        val dogPin = animalPins.firstOrNull { it.animalType == com.example.data.model.AnimalType.AGGRESSIVE_DOG }
-        assertNotNull("Must contain snake hazard report", snakePin)
-        assertNotNull("Must contain aggressive dog hazard report", dogPin)
-        assertEquals(com.example.data.model.PinStatus.PENDING, snakePin?.status)
-    }
+        assertEquals(0, repo.animalReportPins.value.size)
 
-    @Test
-    fun `dropping dangerous animal pin adds new location pin with pending status`() {
-        val repo = PinProRepository()
-        val initialCount = repo.animalReportPins.value.size
-        repo.addAnimalReportPin(
-            animalType = com.example.data.model.AnimalType.SNAKE,
-            label = "Viper Spotted Near Drainage",
-            description = "Coiled under metal drain cover",
-            xRatio = 0.65f,
-            yRatio = 0.55f,
-            locationName = "Drainage Gate 2"
+        repo.submitReport(
+            title = "Dangerous Snake Spotted",
+            category = ReportCategory.DANGEROUS_ANIMALS,
+            description = "Venomous cobra near drainage",
+            latLng = LatLng(14.6762, 120.5375),
+            address = "Poblacion Sector 1"
         )
-        assertEquals(initialCount + 1, repo.animalReportPins.value.size)
+
+        assertEquals(1, repo.animalReportPins.value.size)
         val added = repo.animalReportPins.value.first()
-        assertEquals("Viper Spotted Near Drainage", added.label)
-        assertEquals(com.example.data.model.AnimalType.SNAKE, added.animalType)
-        assertEquals(com.example.data.model.PinStatus.PENDING, added.status)
+        assertEquals("Dangerous Snake Spotted", added.title)
+        assertEquals(ReportCategory.DANGEROUS_ANIMALS, added.category)
+        assertEquals(ReportStatus.PENDING, added.status)
+        assertTrue("Event log must contain submitted event", repo.reportEvents.value.isNotEmpty())
     }
 
     @Test
-    fun `marking animal pin as done and toggling status updates appropriately`() {
+    fun `official response flow updates status to accepted, arrived, and resolved`() {
         val repo = PinProRepository()
-        val pendingPin = repo.animalReportPins.value.first { it.status == com.example.data.model.PinStatus.PENDING }
-        
-        // Mark as done
-        repo.markPinAsDone(pendingPin.id)
-        val donePin = repo.animalReportPins.value.first { it.id == pendingPin.id }
-        assertEquals(com.example.data.model.PinStatus.DONE, donePin.status)
-        assertNotNull(donePin.resolvedAt)
+        repo.submitReport(
+            title = "Street Altercation",
+            category = ReportCategory.FIGHTS,
+            description = "Loud fight near market",
+            latLng = LatLng(14.6762, 120.5375),
+            address = "Balanga Market"
+        )
 
-        // Toggle back to pending
-        repo.togglePinStatus(pendingPin.id)
-        val reOpenedPin = repo.animalReportPins.value.first { it.id == pendingPin.id }
-        assertEquals(com.example.data.model.PinStatus.PENDING, reOpenedPin.status)
+        val reportId = repo.animalReportPins.value.first().id
+
+        // Accept
+        repo.acceptReport(reportId, "Officer Berto Aquino")
+        var report = repo.animalReportPins.value.first()
+        assertTrue(report.status == ReportStatus.ACCEPTED || report.status == ReportStatus.ON_THE_WAY)
+        assertEquals("Officer Berto Aquino", report.assignedOfficialName)
+
+        // Arrived
+        repo.markArrived(reportId, "Officer Berto Aquino")
+        report = repo.animalReportPins.value.first()
+        assertEquals(ReportStatus.ARRIVED, report.status)
+
+        // Resolve
+        repo.resolveReport(reportId, "Officer Berto Aquino", "Crowd dispersed and area secured")
+        report = repo.animalReportPins.value.first()
+        assertEquals(ReportStatus.RESOLVED, report.status)
+        assertNotNull(report.resolvedAt)
     }
 
     @Test
-    fun `toggling pending threats filter updates state`() {
+    fun `toggling pending filter updates filter state`() {
         val repo = PinProRepository()
         assertFalse(repo.isPendingOnlyFilterActive.value)
         repo.togglePendingOnlyFilter()
         assertTrue(repo.isPendingOnlyFilterActive.value)
+    }
+
+    @Test
+    fun `confirming user location sets active barangay and updates state`() {
+        val repo = PinProRepository()
+        assertFalse(repo.isLocationConfirmed.value)
+
+        val sampleHall = repo.barangays.value.first { it.id == "sample_hall" }
+        val loc = LatLng(14.6762, 120.5375)
+
+        repo.confirmUserLocation(loc, sampleHall, "12 Acacia St.")
+        assertTrue(repo.isLocationConfirmed.value)
+        assertEquals("sample_hall", repo.confirmedBarangay.value?.id)
+        assertEquals(loc, repo.confirmedLocation.value)
+
+        repo.requestLocationReSelection()
+        assertFalse(repo.isLocationConfirmed.value)
     }
 }

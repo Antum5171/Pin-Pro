@@ -1,3 +1,11 @@
+/**
+ * PinProRepository.kt
+ *
+ * Primary data repository and state manager for PinPro. Manages active incident reports,
+ * status state transitions (REPORTED -> ACCEPTED -> ON_THE_WAY -> ARRIVED -> RESOLVED),
+ * real-time notification dispatching to residents and officials, official location tracking,
+ * and archived records storage.
+ */
 package com.example.data.repository
 
 import android.util.Log
@@ -17,6 +25,13 @@ import com.example.data.model.AnimalReportPin
 import com.example.data.model.AnimalType
 import com.example.data.model.PinStatus
 import com.example.data.model.CyberPin
+import com.example.data.model.AppRole
+import com.example.data.model.ReportCategory
+import com.example.data.model.ReportStatus
+import com.example.data.model.IncidentReport
+import com.example.data.model.ReportEvent
+import com.example.data.model.OfficialLocation
+import com.example.data.model.AppNotification
 import com.example.data.model.isPointInPolygon
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -54,22 +69,239 @@ class PinProRepository(
     private val _locationOverride = MutableStateFlow(DemoLocationOverride.SAMPLE_HALL)
     val locationOverride: StateFlow<DemoLocationOverride> = _locationOverride.asStateFlow()
 
-    // Dangerous Animal Report Pins
+    // Incident Reports (0 mock reports - clean Firestore records only)
     private val _animalPins = MutableStateFlow<List<AnimalReportPin>>(emptyList())
     val animalPins: StateFlow<List<AnimalReportPin>> = _animalPins.asStateFlow()
     val animalReportPins: StateFlow<List<AnimalReportPin>> = _animalPins.asStateFlow()
     val cyberPins: StateFlow<List<AnimalReportPin>> = _animalPins.asStateFlow()
 
+    // Audit Trail Events (`report_events`)
+    private val _reportEvents = MutableStateFlow<List<ReportEvent>>(emptyList())
+    val reportEvents: StateFlow<List<ReportEvent>> = _reportEvents.asStateFlow()
+
+    // Live Official Locations (`official_locations`)
+    private val _officialLocations = MutableStateFlow<List<OfficialLocation>>(emptyList())
+    val officialLocations: StateFlow<List<OfficialLocation>> = _officialLocations.asStateFlow()
+
+    // Real-time Notifications (`notifications`)
+    private val _notifications = MutableStateFlow<List<AppNotification>>(emptyList())
+    val notifications: StateFlow<List<AppNotification>> = _notifications.asStateFlow()
+
+    // User Confirmed GPS Location & Assigned Barangay Jurisdiction
+    private val _confirmedLocation = MutableStateFlow<LatLng?>(null)
+    val confirmedLocation: StateFlow<LatLng?> = _confirmedLocation.asStateFlow()
+
+    private val _confirmedBarangay = MutableStateFlow<Barangay?>(null)
+    val confirmedBarangay: StateFlow<Barangay?> = _confirmedBarangay.asStateFlow()
+
+    private val _isLocationConfirmed = MutableStateFlow(false)
+    val isLocationConfirmed: StateFlow<Boolean> = _isLocationConfirmed.asStateFlow()
+
+    // Role Switcher for Testing (Resident / Official)
+    private val _currentRole = MutableStateFlow(AppRole.RESIDENT)
+    val currentRole: StateFlow<AppRole> = _currentRole.asStateFlow()
+
+    fun setDeveloperRole(role: AppRole) {
+        _currentRole.value = role
+    }
+
+    fun toggleDeveloperRole() {
+        _currentRole.value = if (_currentRole.value == AppRole.RESIDENT) AppRole.OFFICIAL else AppRole.RESIDENT
+    }
+
+    // Push / In-App Notification alert state
+    private val _latestResolvedNotification = MutableStateFlow<IncidentReport?>(null)
+    val latestResolvedNotification: StateFlow<IncidentReport?> = _latestResolvedNotification.asStateFlow()
+
+    fun dismissResolvedNotification() {
+        _latestResolvedNotification.value = null
+    }
+
+    companion object {
+        // Balanga City, Bataan Map Boundaries
+        const val MAP_MIN_LAT = 14.6600
+        const val MAP_MAX_LAT = 14.6950
+        const val MAP_MIN_LNG = 120.5200
+        const val MAP_MAX_LNG = 120.5600
+
+        const val BALANGA_MIN_LAT = 14.6400
+        const val BALANGA_MAX_LAT = 14.7100
+        const val BALANGA_MIN_LNG = 120.5000
+        const val BALANGA_MAX_LNG = 120.5700
+
+        fun isWithinBalangaCity(latLng: LatLng): Boolean {
+            return latLng.lat in BALANGA_MIN_LAT..BALANGA_MAX_LAT &&
+                   latLng.lng in BALANGA_MIN_LNG..BALANGA_MAX_LNG
+        }
+
+        fun ratioToLatLng(xRatio: Float, yRatio: Float): LatLng {
+            val lat = MAP_MAX_LAT - yRatio.coerceIn(0f, 1f) * (MAP_MAX_LAT - MAP_MIN_LAT)
+            val lng = MAP_MIN_LNG + xRatio.coerceIn(0f, 1f) * (MAP_MAX_LNG - MAP_MIN_LNG)
+            return LatLng(lat, lng)
+        }
+
+        fun latLngToRatio(latLng: LatLng): Pair<Float, Float> {
+            val x = ((latLng.lng - MAP_MIN_LNG) / (MAP_MAX_LNG - MAP_MIN_LNG)).toFloat().coerceIn(0.05f, 0.95f)
+            val y = ((MAP_MAX_LAT - latLng.lat) / (MAP_MAX_LAT - MAP_MIN_LAT)).toFloat().coerceIn(0.05f, 0.95f)
+            return Pair(x, y)
+        }
+    }
+
+    fun confirmUserLocation(latLng: LatLng, barangay: Barangay, address: String = "") {
+        _confirmedLocation.value = latLng
+        _confirmedBarangay.value = barangay
+        _isLocationConfirmed.value = true
+        _currentUser.value = _currentUser.value?.copy(
+            homeBarangayId = barangay.id,
+            address = address.ifBlank { "Registered in ${barangay.name}" }
+        )
+    }
+
+    fun requestLocationReSelection() {
+        _isLocationConfirmed.value = false
+    }
+
+    fun isPointInUserBarangay(xRatio: Float, yRatio: Float): Pair<Boolean, Barangay?> {
+        val point = ratioToLatLng(xRatio, yRatio)
+        val physical = findPhysicalBarangay(point)
+        val assigned = _confirmedBarangay.value
+        if (assigned == null) {
+            return Pair(true, physical)
+        }
+        return Pair(physical?.id == assigned.id, physical)
+    }
+
     private val _filterOnlyPending = MutableStateFlow(false)
     val filterOnlyPending: StateFlow<Boolean> = _filterOnlyPending.asStateFlow()
     val isPendingOnlyFilterActive: StateFlow<Boolean> = _filterOnlyPending.asStateFlow()
-    val isSuntukanFilterActive: StateFlow<Boolean> = _filterOnlyPending.asStateFlow()
 
     fun toggleFilterOnlyPending() {
         _filterOnlyPending.value = !_filterOnlyPending.value
     }
     fun togglePendingOnlyFilter() = toggleFilterOnlyPending()
-    fun toggleSuntukanFilter() = toggleFilterOnlyPending()
+
+    /**
+     * Submit Incident Report with real Firestore persistence and audit event log.
+     */
+    fun submitReport(
+        title: String,
+        category: ReportCategory,
+        description: String,
+        latLng: LatLng,
+        address: String
+    ) {
+        val currentUid = currentAuthUid()
+        val currentName = _currentUser.value?.name.orEmpty().ifBlank { "Resident" }
+        val reportId = "rep_${System.currentTimeMillis()}"
+        val (xRatio, yRatio) = latLngToRatio(latLng)
+
+        val newReport = IncidentReport(
+            id = reportId,
+            title = title.ifBlank { "${category.displayName} Report" },
+            category = category,
+            animalType = if (category == ReportCategory.DANGEROUS_ANIMALS) AnimalType.SNAKE else AnimalType.OTHER_DANGEROUS,
+            label = title.ifBlank { "${category.displayName} Reported" },
+            description = description,
+            locationName = address.ifBlank { "Neighborhood Sector" },
+            latLng = latLng,
+            xRatio = xRatio,
+            yRatio = yRatio,
+            status = ReportStatus.PENDING,
+            residentId = currentUid,
+            reportedBy = currentName,
+            barangayId = _confirmedBarangay.value?.id ?: "sample_hall",
+            timestamp = System.currentTimeMillis(),
+            createdAt = System.currentTimeMillis()
+        )
+
+        // Add to local state flow instantly
+        _animalPins.value = listOf(newReport) + _animalPins.value
+
+        // Log submitted event
+        val event = ReportEvent(
+            id = "evt_${System.currentTimeMillis()}_sub",
+            reportId = reportId,
+            type = "submitted",
+            actorId = currentUid,
+            actorName = currentName,
+            actorRole = "RESIDENT",
+            timestamp = System.currentTimeMillis(),
+            note = "Submitted $title report at $address"
+        )
+        _reportEvents.value = listOf(event) + _reportEvents.value
+
+        // Add notification for officials
+        val notif = AppNotification(
+            id = "notif_${System.currentTimeMillis()}",
+            recipientId = "OFFICIAL",
+            reportId = reportId,
+            type = "new_report",
+            title = "New report: ${category.displayName}",
+            message = "${newReport.title} • ${address.ifBlank { "Neighborhood Sector" }} • just now",
+            read = false,
+            createdAt = System.currentTimeMillis()
+        )
+        _notifications.value = listOf(notif) + _notifications.value
+
+        // Sync to Firestore
+        if (firestore != null) {
+            val reportMap = hashMapOf(
+                "id" to reportId,
+                "title" to newReport.title,
+                "category" to category.name,
+                "animalType" to newReport.animalType.name,
+                "label" to newReport.label,
+                "description" to description,
+                "locationName" to newReport.locationName,
+                "lat" to latLng.lat,
+                "lng" to latLng.lng,
+                "xRatio" to xRatio.toDouble(),
+                "yRatio" to yRatio.toDouble(),
+                "status" to "pending",
+                "residentId" to currentUid,
+                "reportedBy" to currentName,
+                "barangayId" to newReport.barangayId,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("reports").document(reportId).set(reportMap)
+                .addOnFailureListener { e -> Log.w("PinProRepository", "Failed to sync report: ${e.message}") }
+
+            val eventMap = hashMapOf(
+                "id" to event.id,
+                "reportId" to reportId,
+                "type" to "submitted",
+                "actorId" to currentUid,
+                "actorName" to currentName,
+                "actorRole" to "RESIDENT",
+                "timestamp" to FieldValue.serverTimestamp(),
+                "note" to event.note
+            )
+            firestore.collection("report_events").document(event.id).set(eventMap)
+
+            val notifMap = hashMapOf(
+                "id" to notif.id,
+                "recipientId" to "OFFICIAL",
+                "reportId" to reportId,
+                "type" to notif.type,
+                "title" to notif.title,
+                "message" to notif.message,
+                "read" to false,
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("notifications").document(notif.id).set(notifMap)
+        }
+    }
+
+    fun addIncidentReport(
+        category: ReportCategory,
+        label: String,
+        description: String,
+        latLng: LatLng,
+        locationName: String = "Neighborhood Sector"
+    ) {
+        submitReport(label, category, description, latLng, locationName)
+    }
 
     fun addAnimalReportPin(
         animalType: AnimalType,
@@ -79,106 +311,474 @@ class PinProRepository(
         yRatio: Float,
         locationName: String = "Spotted in Neighborhood"
     ) {
-        val newPin = AnimalReportPin(
-            id = "pin_${System.currentTimeMillis()}",
-            animalType = animalType,
-            label = label.ifBlank { "${animalType.displayName} Sighted" },
-            description = description.ifBlank { "Dangerous ${animalType.displayName.lowercase()} reported in area. Stay cautious." },
-            locationName = locationName,
-            xRatio = xRatio.coerceIn(0.08f, 0.92f),
-            yRatio = yRatio.coerceIn(0.08f, 0.92f),
-            status = PinStatus.PENDING,
-            reportedBy = _currentUser.value?.name ?: "Resident",
-            isPrimary = false,
-            category = animalType.displayName
-        )
-        _animalPins.value = listOf(newPin) + _animalPins.value
+        val latLng = ratioToLatLng(xRatio, yRatio)
+        submitReport(label, ReportCategory.DANGEROUS_ANIMALS, description, latLng, locationName)
+    }
 
-        // Persist to Cloud Firestore if enabled
-        val currentUserId = if (firestore != null) {
-            try {
-                Firebase.auth.currentUser?.uid
-            } catch (_: Exception) {
-                null
+    fun addCyberPin(label: String, xRatio: Float, yRatio: Float, description: String = "Dangerous Incident") {
+        val latLng = ratioToLatLng(xRatio, yRatio)
+        submitReport(label, ReportCategory.FIGHTS, description, latLng, "Neighborhood Sector")
+    }
+
+    /**
+     * Official Response Flow: Accept report -> status becomes ACCEPTED / ON_THE_WAY
+     */
+    fun acceptReport(reportId: String, officialName: String = "Officer Berto Aquino") {
+        val officialId = currentAuthUid().ifBlank { "official_berto" }
+        val report = _animalPins.value.firstOrNull { it.id == reportId } ?: return
+        val startLoc = _confirmedBarangay.value?.hallLocation ?: LatLng(14.6762, 120.5375)
+        val route = generateRoute(startLoc, report.latLng)
+
+        val acceptedTime = System.currentTimeMillis()
+
+        _animalPins.value = _animalPins.value.map {
+            if (it.id == reportId) {
+                it.copy(
+                    status = ReportStatus.ACCEPTED,
+                    acceptedAt = acceptedTime,
+                    assignedOfficialId = officialId,
+                    assignedOfficialName = officialName,
+                    routeToIncident = route,
+                    officialLocation = startLoc,
+                    officialEtaMinutes = 5
+                )
+            } else it
+        }
+
+        // Write accepted event
+        val event = ReportEvent(
+            id = "evt_${System.currentTimeMillis()}_acc",
+            reportId = reportId,
+            type = "accepted",
+            actorId = officialId,
+            actorName = officialName,
+            actorRole = "OFFICIAL",
+            timestamp = acceptedTime,
+            note = "Official $officialName accepted dispatch response"
+        )
+        _reportEvents.value = listOf(event) + _reportEvents.value
+
+        // Notify Resident
+        val notif = AppNotification(
+            id = "notif_${System.currentTimeMillis()}",
+            recipientId = report.residentId,
+            reportId = reportId,
+            type = "accepted",
+            title = "Report Accepted",
+            message = "Official $officialName accepted your report and is responding.",
+            read = false,
+            createdAt = System.currentTimeMillis()
+        )
+        _notifications.value = listOf(notif) + _notifications.value
+
+        if (firestore != null) {
+            firestore.collection("reports").document(reportId).update(
+                "status", "accepted",
+                "assignedOfficialId", officialId,
+                "assignedOfficialName", officialName,
+                "acceptedAt", FieldValue.serverTimestamp(),
+                "updatedAt", FieldValue.serverTimestamp()
+            )
+
+            val eventMap = hashMapOf(
+                "id" to event.id,
+                "reportId" to reportId,
+                "type" to "accepted",
+                "actorId" to officialId,
+                "actorName" to officialName,
+                "actorRole" to "OFFICIAL",
+                "timestamp" to FieldValue.serverTimestamp(),
+                "note" to event.note
+            )
+            firestore.collection("report_events").document(event.id).set(eventMap)
+
+            val notifMap = hashMapOf(
+                "id" to notif.id,
+                "recipientId" to report.residentId,
+                "reportId" to reportId,
+                "type" to notif.type,
+                "title" to notif.title,
+                "message" to notif.message,
+                "read" to false,
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("notifications").document(notif.id).set(notifMap)
+        }
+
+        // Initialize Official Location
+        updateOfficialLocation(
+            officialId = officialId,
+            name = officialName,
+            lat = startLoc.lat,
+            lng = startLoc.lng,
+            heading = 0f,
+            reportId = reportId,
+            writeEvent = true
+        )
+    }
+
+    /**
+     * Update Official Live GPS location in `official_locations` and optionally log location_update event.
+     */
+    fun updateOfficialLocation(
+        officialId: String,
+        name: String,
+        lat: Double,
+        lng: Double,
+        heading: Float = 0f,
+        reportId: String? = null,
+        writeEvent: Boolean = false
+    ) {
+        val updatedLoc = OfficialLocation(
+            officialId = officialId,
+            name = name,
+            lat = lat,
+            lng = lng,
+            heading = heading,
+            reportId = reportId,
+            updatedAt = System.currentTimeMillis()
+        )
+
+        _officialLocations.value = _officialLocations.value.filter { it.officialId != officialId } + updatedLoc
+
+        if (reportId != null) {
+            _animalPins.value = _animalPins.value.map {
+                if (it.id == reportId) {
+                    val currentRoute = it.routeToIncident
+                    val newRoute = if (currentRoute.isEmpty()) generateRoute(LatLng(lat, lng), it.latLng) else currentRoute
+                    it.copy(
+                        officialLocation = LatLng(lat, lng),
+                        routeToIncident = newRoute,
+                        status = if (it.status == ReportStatus.ACCEPTED) ReportStatus.ON_THE_WAY else it.status
+                    )
+                } else it
             }
-        } else null
-        if (firestore != null && currentUserId != null) {
-            val pinData = hashMapOf(
-                "id" to newPin.id,
-                "animalType" to animalType.name,
-                "label" to newPin.label,
-                "description" to newPin.description,
-                "locationName" to newPin.locationName,
-                "xRatio" to newPin.xRatio.toDouble(),
-                "yRatio" to newPin.yRatio.toDouble(),
-                "status" to newPin.status.name,
-                "reportedBy" to newPin.reportedBy,
-                "userId" to currentUserId,
-                "createdAt" to FieldValue.serverTimestamp(),
+        }
+
+        if (firestore != null) {
+            val locMap = hashMapOf(
+                "officialId" to officialId,
+                "name" to name,
+                "lat" to lat,
+                "lng" to lng,
+                "heading" to heading,
+                "reportId" to reportId,
                 "updatedAt" to FieldValue.serverTimestamp()
             )
-            firestore.collection("pins").document(newPin.id).set(pinData)
-                .addOnFailureListener { e ->
-                    Log.w("PinProRepository", "Failed to sync pin to Firestore: ${e.message}")
-                }
+            firestore.collection("official_locations").document(officialId).set(locMap)
+
+            if (writeEvent && reportId != null) {
+                val eventId = "evt_${System.currentTimeMillis()}_loc"
+                val eventMap = hashMapOf(
+                    "id" to eventId,
+                    "reportId" to reportId,
+                    "type" to "location_update",
+                    "actorId" to officialId,
+                    "actorName" to name,
+                    "actorRole" to "OFFICIAL",
+                    "timestamp" to FieldValue.serverTimestamp(),
+                    "note" to "GPS coordinates updated: (${String.format("%.4f", lat)}, ${String.format("%.4f", lng)})"
+                )
+                firestore.collection("report_events").document(eventId).set(eventMap)
+            }
         }
     }
 
-    fun addCyberPin(label: String, xRatio: Float, yRatio: Float, description: String = "Dangerous Animal Sighting") {
-        val lower = label.lowercase()
-        val type = when {
-            lower.contains("dog") -> AnimalType.AGGRESSIVE_DOG
-            lower.contains("snake") || lower.contains("cobra") || lower.contains("python") -> AnimalType.SNAKE
-            else -> AnimalType.SNAKE
+    /**
+     * Official Response Flow: Mark Arrived
+     */
+    fun markArrived(reportId: String, officialName: String = "Officer Berto Aquino") {
+        val officialId = currentAuthUid().ifBlank { "official_berto" }
+        val arrivedTime = System.currentTimeMillis()
+        var residentUid = ""
+
+        _animalPins.value = _animalPins.value.map {
+            if (it.id == reportId) {
+                residentUid = it.residentId
+                it.copy(
+                    status = ReportStatus.ARRIVED,
+                    arrivedAt = arrivedTime,
+                    officialEtaMinutes = 0
+                )
+            } else it
         }
-        addAnimalReportPin(type, label, description, xRatio, yRatio)
+
+        val event = ReportEvent(
+            id = "evt_${System.currentTimeMillis()}_arr",
+            reportId = reportId,
+            type = "arrived",
+            actorId = officialId,
+            actorName = officialName,
+            actorRole = "OFFICIAL",
+            timestamp = arrivedTime,
+            note = "Official $officialName arrived at the incident scene"
+        )
+        _reportEvents.value = listOf(event) + _reportEvents.value
+
+        val notif = AppNotification(
+            id = "notif_${System.currentTimeMillis()}",
+            recipientId = residentUid,
+            reportId = reportId,
+            type = "arrived",
+            title = "Official Arrived",
+            message = "Official $officialName has arrived at your location.",
+            read = false,
+            createdAt = System.currentTimeMillis()
+        )
+        _notifications.value = listOf(notif) + _notifications.value
+
+        if (firestore != null) {
+            firestore.collection("reports").document(reportId).update(
+                "status", "arrived",
+                "arrivedAt", FieldValue.serverTimestamp(),
+                "updatedAt", FieldValue.serverTimestamp()
+            )
+
+            val eventMap = hashMapOf(
+                "id" to event.id,
+                "reportId" to reportId,
+                "type" to "arrived",
+                "actorId" to officialId,
+                "actorName" to officialName,
+                "actorRole" to "OFFICIAL",
+                "timestamp" to FieldValue.serverTimestamp(),
+                "note" to event.note
+            )
+            firestore.collection("report_events").document(event.id).set(eventMap)
+
+            val notifMap = hashMapOf(
+                "id" to notif.id,
+                "recipientId" to residentUid,
+                "reportId" to reportId,
+                "type" to notif.type,
+                "title" to notif.title,
+                "message" to notif.message,
+                "read" to false,
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("notifications").document(notif.id).set(notifMap)
+        }
+    }
+
+    /**
+     * Official Response Flow: Resolve report with optional note
+     */
+    fun resolveReport(
+        reportId: String,
+        officialName: String = "Officer Berto Aquino",
+        note: String? = null
+    ) {
+        val officialId = currentAuthUid().ifBlank { "official_berto" }
+        val resolvedTime = System.currentTimeMillis()
+        var resolvedReport: IncidentReport? = null
+
+        _animalPins.value = _animalPins.value.map {
+            if (it.id == reportId) {
+                val updated = it.copy(
+                    status = ReportStatus.RESOLVED,
+                    resolvedAt = resolvedTime,
+                    officialEtaMinutes = 0
+                )
+                resolvedReport = updated
+                updated
+            } else it
+        }
+
+        resolvedReport?.let {
+            _latestResolvedNotification.value = it
+        }
+
+        val event = ReportEvent(
+            id = "evt_${System.currentTimeMillis()}_res",
+            reportId = reportId,
+            type = "resolved",
+            actorId = officialId,
+            actorName = officialName,
+            actorRole = "OFFICIAL",
+            timestamp = resolvedTime,
+            note = note ?: "Incident officially resolved and secured"
+        )
+        _reportEvents.value = listOf(event) + _reportEvents.value
+
+        val residentUid = resolvedReport?.residentId.orEmpty()
+        val notif = AppNotification(
+            id = "notif_${System.currentTimeMillis()}",
+            recipientId = residentUid,
+            reportId = reportId,
+            type = "resolved",
+            title = "Report Resolved",
+            message = "Your report has been marked resolved by $officialName.",
+            read = false,
+            createdAt = System.currentTimeMillis()
+        )
+        _notifications.value = listOf(notif) + _notifications.value
+
+        if (firestore != null) {
+            firestore.collection("reports").document(reportId).update(
+                "status", "resolved",
+                "resolvedAt", FieldValue.serverTimestamp(),
+                "updatedAt", FieldValue.serverTimestamp()
+            )
+
+            val eventMap = hashMapOf(
+                "id" to event.id,
+                "reportId" to reportId,
+                "type" to "resolved",
+                "actorId" to officialId,
+                "actorName" to officialName,
+                "actorRole" to "OFFICIAL",
+                "timestamp" to FieldValue.serverTimestamp(),
+                "note" to event.note
+            )
+            firestore.collection("report_events").document(event.id).set(eventMap)
+
+            val notifMap = hashMapOf(
+                "id" to notif.id,
+                "recipientId" to residentUid,
+                "reportId" to reportId,
+                "type" to notif.type,
+                "title" to notif.title,
+                "message" to notif.message,
+                "read" to false,
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("notifications").document(notif.id).set(notifMap)
+
+            // Clear reportId from official_locations
+            firestore.collection("official_locations").document(officialId).update("reportId", null)
+        }
     }
 
     fun markPinAsDone(id: String) {
-        _animalPins.value = _animalPins.value.map {
-            if (it.id == id) it.copy(status = PinStatus.DONE, resolvedAt = System.currentTimeMillis()) else it
-        }
-        firestore?.collection("pins")?.document(id)?.update(
-            "status", "DONE",
-            "updatedAt", FieldValue.serverTimestamp()
-        )
+        resolveReport(id)
     }
 
     fun markPinAsPending(id: String) {
         _animalPins.value = _animalPins.value.map {
-            if (it.id == id) it.copy(status = PinStatus.PENDING, resolvedAt = null) else it
+            if (it.id == id) it.copy(status = ReportStatus.PENDING, resolvedAt = null, routeToIncident = emptyList(), officialLocation = null, officialEtaMinutes = null) else it
         }
-        firestore?.collection("pins")?.document(id)?.update(
-            "status", "PENDING",
+        firestore?.collection("reports")?.document(id)?.update(
+            "status", "pending",
             "updatedAt", FieldValue.serverTimestamp()
         )
     }
 
     fun togglePinStatus(id: String) {
-        var updatedStatus = PinStatus.PENDING
-        _animalPins.value = _animalPins.value.map {
-            if (it.id == id) {
-                if (it.status == PinStatus.PENDING) {
-                    updatedStatus = PinStatus.DONE
-                    it.copy(status = PinStatus.DONE, resolvedAt = System.currentTimeMillis())
-                } else {
-                    updatedStatus = PinStatus.PENDING
-                    it.copy(status = PinStatus.PENDING, resolvedAt = null)
-                }
-            } else it
+        val target = _animalPins.value.firstOrNull { it.id == id } ?: return
+        if (target.status == ReportStatus.PENDING) {
+            acceptReport(id)
+        } else if (target.status == ReportStatus.ACCEPTED || target.status == ReportStatus.ON_THE_WAY) {
+            markArrived(id)
+        } else if (target.status == ReportStatus.ARRIVED) {
+            resolveReport(id)
+        } else {
+            markPinAsPending(id)
         }
-        firestore?.collection("pins")?.document(id)?.update(
-            "status", updatedStatus.name,
-            "updatedAt", FieldValue.serverTimestamp()
-        )
     }
 
     fun removeCyberPin(id: String) {
         _animalPins.value = _animalPins.value.filter { it.id != id }
-        firestore?.collection("pins")?.document(id)?.delete()
+        firestore?.collection("reports")?.document(id)?.delete()
     }
 
-    private var movementJob: Job? = null
+    private var movementStepIndex = 0
+
+    /**
+     * Simulate Movement Button logic for Officials testing en-route tracking.
+     * Moves official's marker along route toward incident in steps.
+     */
+    fun simulateMovementStep(reportId: String) {
+        val report = _animalPins.value.firstOrNull { it.id == reportId } ?: return
+        val route = report.routeToIncident.ifEmpty {
+            val startLoc = _confirmedBarangay.value?.hallLocation ?: LatLng(14.6762, 120.5375)
+            generateRoute(startLoc, report.latLng)
+        }
+        if (route.isEmpty()) return
+
+        movementStepIndex = (movementStepIndex + 1) % route.size
+        val nextLoc = route[movementStepIndex]
+        val officialName = _currentUser.value?.name ?: "Officer Berto Aquino"
+        val officialId = currentAuthUid().ifBlank { "official_berto" }
+
+        val isLastStep = (movementStepIndex == route.size - 1)
+
+        updateOfficialLocation(
+            officialId = officialId,
+            name = officialName,
+            lat = nextLoc.lat,
+            lng = nextLoc.lng,
+            heading = 45f,
+            reportId = reportId,
+            writeEvent = (movementStepIndex % 3 == 0 || isLastStep)
+        )
+
+        if (isLastStep) {
+            markArrived(reportId, officialName)
+        }
+    }
+
+    fun notifyResidentOnTheWay(reportId: String, officialName: String = "Officer Berto Aquino", etaMinutes: Int = 3) {
+        val report = _animalPins.value.firstOrNull { it.id == reportId } ?: return
+        val residentUid = report.residentId
+        val existingNotif = _notifications.value.firstOrNull { it.reportId == reportId && it.type == "on_the_way" }
+        if (existingNotif != null) return
+
+        val notif = AppNotification(
+            id = "notif_${System.currentTimeMillis()}_otw",
+            recipientId = residentUid,
+            reportId = reportId,
+            type = "on_the_way",
+            title = "Official On The Way",
+            message = "Official $officialName is on the way. ETA $etaMinutes mins.",
+            read = false,
+            createdAt = System.currentTimeMillis()
+        )
+        _notifications.value = listOf(notif) + _notifications.value
+
+        if (firestore != null) {
+            val notifMap = hashMapOf(
+                "id" to notif.id,
+                "recipientId" to residentUid,
+                "reportId" to reportId,
+                "type" to notif.type,
+                "title" to notif.title,
+                "message" to notif.message,
+                "read" to false,
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+            firestore.collection("notifications").document(notif.id).set(notifMap)
+        }
+    }
+
+    fun markNotificationRead(notificationId: String) {
+        _notifications.value = _notifications.value.map {
+            if (it.id == notificationId) it.copy(read = true) else it
+        }
+        firestore?.collection("notifications")?.document(notificationId)?.update("read", true)
+    }
+
+    fun markAllNotificationsAsRead() {
+        _notifications.value = _notifications.value.map { it.copy(read = true) }
+        firestore?.collection("notifications")?.get()?.addOnSuccessListener { snapshot ->
+            val batch = firestore.batch()
+            snapshot.documents.forEach { doc ->
+                batch.update(doc.reference, "read", true)
+            }
+            batch.commit()
+        }
+    }
+
+    private fun currentAuthUid(): String {
+        return if (firestore != null) {
+            try {
+                Firebase.auth.currentUser?.uid ?: _currentUser.value?.uid.orEmpty()
+            } catch (_: Exception) {
+                _currentUser.value?.uid.orEmpty()
+            }
+        } else {
+            _currentUser.value?.uid.orEmpty()
+        }
+    }
 
     init {
         seedDemoData()
@@ -188,41 +788,121 @@ class PinProRepository(
     private fun listenToFirestore() {
         if (firestore == null) return
         try {
-            firestore.collection("pins").addSnapshotListener { snapshot, error ->
+            // 1. Real-time reports listener
+            firestore.collection("reports").addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.w("PinProRepository", "Firestore snapshot listener error: ${error.message}")
+                    Log.w("PinProRepository", "Firestore reports listener error: ${error.message}")
                     return@addSnapshotListener
                 }
-                if (snapshot != null && !snapshot.isEmpty) {
-                    val firestorePins = snapshot.documents.mapNotNull { doc ->
+                if (snapshot != null) {
+                    val reportsList = snapshot.documents.mapNotNull { doc ->
                         try {
-                            val typeStr = doc.getString("animalType") ?: "SNAKE"
-                            val animalType = try { AnimalType.valueOf(typeStr) } catch (_: Exception) { AnimalType.SNAKE }
-                            val statusStr = doc.getString("status") ?: "PENDING"
-                            val status = try { PinStatus.valueOf(statusStr) } catch (_: Exception) { PinStatus.PENDING }
-                            AnimalReportPin(
+                            val catStr = doc.getString("category") ?: "FIGHTS"
+                            val category = try { ReportCategory.valueOf(catStr.uppercase()) } catch (_: Exception) { ReportCategory.FIGHTS }
+                            val statusStr = doc.getString("status") ?: "pending"
+                            val status = ReportStatus.fromCode(statusStr)
+
+                            val lat = doc.getDouble("lat") ?: 14.6762
+                            val lng = doc.getDouble("lng") ?: 120.5375
+                            val incidentLoc = LatLng(lat, lng)
+                            val (calcX, calcY) = latLngToRatio(incidentLoc)
+
+                            IncidentReport(
                                 id = doc.id,
-                                animalType = animalType,
-                                label = doc.getString("label") ?: "${animalType.displayName} Sighted",
+                                title = doc.getString("title") ?: doc.getString("label") ?: "${category.displayName} Report",
+                                category = category,
+                                animalType = AnimalType.OTHER_DANGEROUS,
+                                label = doc.getString("label") ?: doc.getString("title") ?: "${category.displayName} Reported",
                                 description = doc.getString("description") ?: "",
-                                locationName = doc.getString("locationName") ?: "Neighborhood Sector",
-                                xRatio = (doc.getDouble("xRatio") ?: 0.5).toFloat(),
-                                yRatio = (doc.getDouble("yRatio") ?: 0.5).toFloat(),
+                                locationName = doc.getString("locationName") ?: doc.getString("address") ?: "Neighborhood Sector",
+                                latLng = incidentLoc,
+                                xRatio = (doc.getDouble("xRatio")?.toFloat() ?: calcX),
+                                yRatio = (doc.getDouble("yRatio")?.toFloat() ?: calcY),
                                 status = status,
-                                reportedBy = doc.getString("reportedBy") ?: "Resident",
+                                residentId = doc.getString("residentId") ?: "",
+                                reportedBy = doc.getString("reportedBy") ?: doc.getString("residentName") ?: "Resident",
+                                barangayId = doc.getString("barangayId") ?: "sample_hall",
+                                assignedOfficialId = doc.getString("assignedOfficialId"),
+                                assignedOfficialName = doc.getString("assignedOfficialName"),
+                                createdAt = doc.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis(),
                                 timestamp = doc.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis()
                             )
                         } catch (e: Exception) {
                             null
                         }
                     }
-                    if (firestorePins.isNotEmpty()) {
-                        _animalPins.value = firestorePins
+                    _animalPins.value = reportsList
+                }
+            }
+
+            // 2. Real-time report_events listener
+            firestore.collection("report_events").addSnapshotListener { snapshot, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshot != null) {
+                    val eventsList = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            ReportEvent(
+                                id = doc.id,
+                                reportId = doc.getString("reportId") ?: "",
+                                type = doc.getString("type") ?: "submitted",
+                                actorId = doc.getString("actorId") ?: "",
+                                actorName = doc.getString("actorName") ?: "User",
+                                actorRole = doc.getString("actorRole") ?: "RESIDENT",
+                                timestamp = doc.getTimestamp("timestamp")?.toDate()?.time ?: System.currentTimeMillis(),
+                                note = doc.getString("note")
+                            )
+                        } catch (_: Exception) { null }
+                    }.sortedByDescending { it.timestamp }
+                    _reportEvents.value = eventsList
+                }
+            }
+
+            // 3. Real-time official_locations listener
+            firestore.collection("official_locations").addSnapshotListener { snapshot, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshot != null) {
+                    val locList = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            val lat = doc.getDouble("lat") ?: return@mapNotNull null
+                            val lng = doc.getDouble("lng") ?: return@mapNotNull null
+                            OfficialLocation(
+                                officialId = doc.id,
+                                name = doc.getString("name") ?: "Official",
+                                lat = lat,
+                                lng = lng,
+                                heading = doc.getDouble("heading")?.toFloat() ?: 0f,
+                                reportId = doc.getString("reportId"),
+                                updatedAt = doc.getTimestamp("updatedAt")?.toDate()?.time ?: System.currentTimeMillis()
+                            )
+                        } catch (_: Exception) { null }
                     }
+                    _officialLocations.value = locList
+                }
+            }
+
+            // 4. Real-time notifications listener
+            firestore.collection("notifications").addSnapshotListener { snapshot, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshot != null) {
+                    val notifList = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            AppNotification(
+                                id = doc.id,
+                                recipientId = doc.getString("recipientId") ?: "OFFICIAL",
+                                reportId = doc.getString("reportId") ?: "",
+                                type = doc.getString("type") ?: "new_report",
+                                title = doc.getString("title") ?: "",
+                                message = doc.getString("message") ?: "",
+                                read = doc.getBoolean("read") ?: false,
+                                createdAt = doc.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis()
+                            )
+                        } catch (_: Exception) { null }
+                    }.sortedByDescending { it.createdAt }
+                    _notifications.value = notifList
                 }
             }
         } catch (e: Exception) {
-            Log.w("PinProRepository", "Error setting up Firestore listener", e)
+            Log.w("PinProRepository", "Error setting up Firestore listeners", e)
         }
     }
 
@@ -240,6 +920,9 @@ class PinProRepository(
 
     fun logout() {
         _currentUser.value = null
+        _isLocationConfirmed.value = false
+        _confirmedLocation.value = null
+        _confirmedBarangay.value = null
     }
 
     fun registerResident(
@@ -270,249 +953,15 @@ class PinProRepository(
         _users.value = _users.value.map { if (it.uid == current.uid) updated else it }
     }
 
-    fun setResidentStatus(userId: String, status: UserStatus) {
-        _users.value = _users.value.map { user ->
-            if (user.uid == userId) user.copy(status = status) else user
-        }
-        if (_currentUser.value?.uid == userId) {
-            _currentUser.value = _currentUser.value?.copy(status = status)
-        }
-    }
-
-    /**
-     * Check which barangay the point physically resides in using point-in-polygon.
-     */
     fun findPhysicalBarangay(point: LatLng): Barangay? {
         return _barangays.value.firstOrNull { barangay ->
             isPointInPolygon(point, barangay.boundaryPolygon)
         }
     }
 
-    /**
-     * Creates an alert based on point-in-polygon check.
-     */
-    fun createAlert(
-        resident: User,
-        category: AlertCategory,
-        note: String,
-        photoUrl: String? = null,
-        shareLiveLocation: Boolean = true,
-        forceHomeBarangay: Boolean = false
-    ): Alert {
-        val physicalLoc = getCurrentDeviceLocation()
-        val physicalBarangay = findPhysicalBarangay(physicalLoc)
-
-        val receivingBarangayId = when {
-            forceHomeBarangay -> resident.homeBarangayId
-            physicalBarangay != null -> physicalBarangay.id
-            else -> resident.homeBarangayId
-        }
-
-        val fromOutsideHome = (receivingBarangayId != resident.homeBarangayId)
-
-        val newAlert = Alert(
-            id = "ALT-${System.currentTimeMillis().toString().takeLast(5)}",
-            residentId = resident.uid,
-            residentName = resident.name,
-            residentMobile = resident.mobile,
-            receivingBarangayId = receivingBarangayId,
-            fromOutsideHome = fromOutsideHome,
-            category = category,
-            note = note,
-            photoUrl = photoUrl,
-            location = AlertLocation(
-                lat = physicalLoc.lat,
-                lng = physicalLoc.lng,
-                address = "${resident.address} (Near ${physicalBarangay?.name ?: "Barangay Border"})"
-            ),
-            shareLiveLocation = shareLiveLocation,
-            status = AlertStatus.RECEIVED,
-            createdAt = System.currentTimeMillis()
-        )
-
-        _alerts.value = listOf(newAlert) + _alerts.value
-        return newAlert
-    }
-
-    fun cancelAlert(alertId: String) {
-        _alerts.value = _alerts.value.map { alert ->
-            if (alert.id == alertId) alert.copy(status = AlertStatus.CANCELLED) else alert
-        }
-    }
-
-    fun assignTanod(alertId: String, tanodId: String) {
-        val tanod = _tanods.value.firstOrNull { it.uid == tanodId } ?: return
-        val alert = _alerts.value.firstOrNull { it.id == alertId } ?: return
-
-        // Generate realistic waypoints from Tanod location to Alert location
-        val route = generateRoute(tanod.currentLocation, LatLng(alert.location.lat, alert.location.lng))
-
-        _tanods.value = _tanods.value.map {
-            if (it.uid == tanodId) it.copy(availability = TanodAvailability.BUSY) else it
-        }
-
-        _alerts.value = _alerts.value.map {
-            if (it.id == alertId) {
-                it.copy(
-                    status = AlertStatus.ASSIGNED,
-                    assignedTanodId = tanodId,
-                    assignedAt = System.currentTimeMillis(),
-                    etaMinutes = 7,
-                    route = route
-                )
-            } else it
-        }
-    }
-
-    fun updateAlertStatus(alertId: String, newStatus: AlertStatus) {
-        val alert = _alerts.value.firstOrNull { it.id == alertId } ?: return
-
-        _alerts.value = _alerts.value.map {
-            if (it.id == alertId) {
-                when (newStatus) {
-                    AlertStatus.ON_THE_WAY -> {
-                        it.copy(status = AlertStatus.ON_THE_WAY, etaMinutes = 5)
-                    }
-                    AlertStatus.ARRIVED -> {
-                        it.copy(status = AlertStatus.ARRIVED, etaMinutes = 0, arrivedAt = System.currentTimeMillis())
-                    }
-                    AlertStatus.RESOLVED -> {
-                        it.copy(status = AlertStatus.RESOLVED, resolvedAt = System.currentTimeMillis())
-                    }
-                    else -> it.copy(status = newStatus)
-                }
-            } else it
-        }
-
-        if (newStatus == AlertStatus.ON_THE_WAY && alert.assignedTanodId != null) {
-            startTanodMovementSimulation(alertId, alert.assignedTanodId)
-        }
-
-        if (newStatus == AlertStatus.RESOLVED && alert.assignedTanodId != null) {
-            _tanods.value = _tanods.value.map {
-                if (it.uid == alert.assignedTanodId) {
-                    it.copy(
-                        availability = TanodAvailability.AVAILABLE,
-                        responseCountToday = it.responseCountToday + 1
-                    )
-                } else it
-            }
-        }
-    }
-
-    fun rateAlert(alertId: String, rating: Int) {
-        _alerts.value = _alerts.value.map {
-            if (it.id == alertId) it.copy(rating = rating) else it
-        }
-    }
-
-    fun toggleTanodAvailability(tanodId: String, availability: TanodAvailability) {
-        _tanods.value = _tanods.value.map {
-            if (it.uid == tanodId) it.copy(availability = availability) else it
-        }
-    }
-
-    fun addTanod(barangayId: String, name: String, badgeNumber: String) {
-        val bHall = _barangays.value.firstOrNull { it.id == barangayId }?.hallLocation ?: LatLng(14.6538, 121.0505)
-        val newTanod = Tanod(
-            uid = "tanod_${System.currentTimeMillis()}",
-            barangayId = barangayId,
-            name = name,
-            badgeNumber = badgeNumber,
-            availability = TanodAvailability.AVAILABLE,
-            currentLocation = LatLng(bHall.lat + 0.001, bHall.lng + 0.001),
-            responseCountToday = 0
-        )
-        _tanods.value = _tanods.value + newTanod
-    }
-
-    /**
-     * Real-time Grab/Lalamove Movement Simulation.
-     * Gradually animates the Tanod's position along the route polyline towards the resident,
-     * writing the updated location every second, updating etaMinutes downwards.
-     */
-    fun startTanodMovementSimulation(alertId: String, tanodId: String) {
-        movementJob?.cancel()
-        movementJob = scope.launch {
-            val alert = _alerts.value.firstOrNull { it.id == alertId } ?: return@launch
-            val route = alert.route.ifEmpty {
-                val tanod = _tanods.value.firstOrNull { it.uid == tanodId } ?: return@launch
-                generateRoute(tanod.currentLocation, LatLng(alert.location.lat, alert.location.lng))
-            }
-            if (route.isEmpty()) return@launch
-
-            val steps = route.size
-            for (i in 0 until steps) {
-                val currentStepLoc = route[i]
-                val remainingRatio = (steps - 1 - i).toFloat() / (steps - 1).coerceAtLeast(1)
-                val remainingEta = (remainingRatio * 6).toInt().coerceAtLeast(if (i == steps - 1) 0 else 1)
-
-                // Update Tanod location in state
-                _tanods.value = _tanods.value.map {
-                    if (it.uid == tanodId) it.copy(currentLocation = currentStepLoc) else it
-                }
-
-                // Update Alert ETA and route progress
-                _alerts.value = _alerts.value.map {
-                    if (it.id == alertId) it.copy(etaMinutes = remainingEta) else it
-                }
-
-                delay(1200L) // 1.2s per step for smooth realistic tracking
-            }
-
-            // Arrived at destination
-            updateAlertStatus(alertId, AlertStatus.ARRIVED)
-        }
-    }
-
-    fun simulateIncomingAlert(barangayId: String) {
-        val barangay = _barangays.value.firstOrNull { it.id == barangayId } ?: return
-        val resident = _users.value.filter { it.role == UserRole.RESIDENT && it.homeBarangayId == barangayId }.randomOrNull()
-            ?: _users.value.first { it.role == UserRole.RESIDENT }
-
-        val categories = AlertCategory.values()
-        val randomCategory = categories[Random.nextInt(categories.size)]
-
-        val notes = mapOf(
-            AlertCategory.MEDICAL to "Elderly resident experiencing dizziness and shortness of breath.",
-            AlertCategory.FIRE to "Smoke observed coming from secondary kitchen in compound.",
-            AlertCategory.CRIME to "Loud disturbance and argument on street corner, peace & order assistance needed.",
-            AlertCategory.FLOOD to "Flash flood water rising rapidly near drainage culvert.",
-            AlertCategory.OTHER to "Fallen tree branch blocking barangay access road."
-        )
-
-        // Point near barangay hall
-        val alertLoc = LatLng(
-            barangay.hallLocation.lat + (Random.nextDouble(-0.003, 0.003)),
-            barangay.hallLocation.lng + (Random.nextDouble(-0.003, 0.003))
-        )
-
-        val newAlert = Alert(
-            id = "ALT-${System.currentTimeMillis().toString().takeLast(5)}",
-            residentId = resident.uid,
-            residentName = resident.name,
-            residentMobile = resident.mobile,
-            receivingBarangayId = barangayId,
-            fromOutsideHome = false,
-            category = randomCategory,
-            note = notes[randomCategory] ?: "Emergency assistance requested.",
-            location = AlertLocation(
-                lat = alertLoc.lat,
-                lng = alertLoc.lng,
-                address = "${resident.address}, ${barangay.name}"
-            ),
-            shareLiveLocation = true,
-            status = AlertStatus.RECEIVED,
-            createdAt = System.currentTimeMillis()
-        )
-
-        _alerts.value = listOf(newAlert) + _alerts.value
-    }
-
     private fun generateRoute(start: LatLng, end: LatLng): List<LatLng> {
         val points = mutableListOf<LatLng>()
         val totalSteps = 16
-        // Create an organic route simulating Manila/Pasig street navigation (slight doglegs)
         val midLat = (start.lat + end.lat) / 2 + 0.0006
         val midLng = (start.lng + end.lng) / 2 - 0.0004
 
@@ -535,40 +984,41 @@ class PinProRepository(
     }
 
     /**
-     * Seeds complete realistic Philippine barangay demo data.
+     * Seeds barangays and user accounts (0 mock reports - clean Firestore storage).
      */
     fun seedDemoData() {
-        movementJob?.cancel()
+        // 1. Clean reports list (Zero mock reports)
+        _animalPins.value = emptyList()
 
-        // 1. Barangays
+        // 2. Barangays in Balanga City, Bataan
         val bSampleHall = Barangay(
             id = "sample_hall",
-            name = "Barangay Sample Hall",
-            hallLocation = LatLng(14.6538, 121.0505),
-            hallContact = "(02) 8876-1234 / 0917-888-HALL",
+            name = "Brgy. Poblacion, Balanga City",
+            hallLocation = LatLng(14.6762, 120.5375),
+            hallContact = "(047) 237-1234 / 0917-888-BLNG",
             boundaryPolygon = listOf(
-                LatLng(14.6590, 121.0440),
-                LatLng(14.6590, 121.0550),
-                LatLng(14.6480, 121.0550),
-                LatLng(14.6480, 121.0440)
+                LatLng(14.6900, 120.5200),
+                LatLng(14.6900, 120.5400),
+                LatLng(14.6650, 120.5400),
+                LatLng(14.6650, 120.5200)
             )
         )
 
         val bRiverside = Barangay(
             id = "riverside",
-            name = "Barangay Riverside",
-            hallLocation = LatLng(14.6538, 121.0610),
-            hallContact = "(02) 8876-5678 / 0918-999-RIVR",
+            name = "Brgy. San Jose, Balanga City",
+            hallLocation = LatLng(14.6790, 120.5450),
+            hallContact = "(047) 237-5678 / 0918-999-BLNG",
             boundaryPolygon = listOf(
-                LatLng(14.6590, 121.0550),
-                LatLng(14.6590, 121.0660),
-                LatLng(14.6480, 121.0660),
-                LatLng(14.6480, 121.0550)
+                LatLng(14.6900, 120.5400),
+                LatLng(14.6900, 120.5600),
+                LatLng(14.6650, 120.5600),
+                LatLng(14.6650, 120.5400)
             )
         )
         _barangays.value = listOf(bSampleHall, bRiverside)
 
-        // 2. Users
+        // 3. Demo Users
         val seededUsers = listOf(
             User(
                 uid = "res_maria",
@@ -580,46 +1030,6 @@ class PinProRepository(
                 homeBarangayId = "sample_hall"
             ),
             User(
-                uid = "res_jose",
-                role = UserRole.RESIDENT,
-                name = "Jose Reyes",
-                mobile = "+63 920 234 5678",
-                status = UserStatus.ACTIVE,
-                address = "45 Narra Ave., Purok 1",
-                homeBarangayId = "sample_hall"
-            ),
-            User(
-                uid = "res_liza",
-                role = UserRole.RESIDENT,
-                name = "Liza Ramos",
-                mobile = "+63 918 345 6789",
-                status = UserStatus.ACTIVE,
-                address = "88 Riverside Blvd., Purok 5",
-                homeBarangayId = "riverside"
-            ),
-            User(
-                uid = "admin_ramon",
-                role = UserRole.ADMIN,
-                name = "Kapitan Ramon Villanueva",
-                mobile = "+63 917 999 1111",
-                officialId = "KAP-01-SH",
-                status = UserStatus.ACTIVE,
-                address = "Barangay Hall Complex",
-                homeBarangayId = "sample_hall",
-                barangayId = "sample_hall"
-            ),
-            User(
-                uid = "admin_elena",
-                role = UserRole.ADMIN,
-                name = "Kapitana Elena Cruz",
-                mobile = "+63 918 888 2222",
-                officialId = "KAP-02-RV",
-                status = UserStatus.ACTIVE,
-                address = "Riverside Barangay Center",
-                homeBarangayId = "riverside",
-                barangayId = "riverside"
-            ),
-            User(
                 uid = "tanod_berto",
                 role = UserRole.TANOD,
                 name = "Berto Aquino",
@@ -629,217 +1039,83 @@ class PinProRepository(
                 address = "Barangay Outpost 1",
                 homeBarangayId = "sample_hall",
                 barangayId = "sample_hall"
-            ),
-            User(
-                uid = "tanod_lito",
-                role = UserRole.TANOD,
-                name = "Lito Mercado",
-                mobile = "+63 921 555 1202",
-                officialId = "TND-SH-07",
-                status = UserStatus.ACTIVE,
-                address = "Barangay Outpost 2",
-                homeBarangayId = "sample_hall",
-                barangayId = "sample_hall"
-            ),
-            User(
-                uid = "tanod_dodong",
-                role = UserRole.TANOD,
-                name = "Dodong Salazar",
-                mobile = "+63 919 555 2301",
-                officialId = "TND-RV-01",
-                status = UserStatus.ACTIVE,
-                address = "Riverside Outpost East",
-                homeBarangayId = "riverside",
-                barangayId = "riverside"
             )
         )
         _users.value = seededUsers
+    }
 
-        // 3. Tanods
-        val seededTanods = listOf(
-            Tanod(
-                uid = "tanod_berto",
-                barangayId = "sample_hall",
-                name = "Berto Aquino",
-                badgeNumber = "TND-04",
-                availability = TanodAvailability.AVAILABLE,
-                currentLocation = LatLng(14.6520, 121.0490),
-                responseCountToday = 3,
-                contact = "0921-555-1201"
-            ),
-            Tanod(
-                uid = "tanod_lito",
-                barangayId = "sample_hall",
-                name = "Lito Mercado",
-                badgeNumber = "TND-07",
-                availability = TanodAvailability.AVAILABLE,
-                currentLocation = LatLng(14.6550, 121.0520),
-                responseCountToday = 2,
-                contact = "0921-555-1202"
-            ),
-            Tanod(
-                uid = "tanod_cardo",
-                barangayId = "sample_hall",
-                name = "Cardo Dalisay",
-                badgeNumber = "TND-09",
-                availability = TanodAvailability.OFF_DUTY,
-                currentLocation = LatLng(14.6538, 121.0505),
-                responseCountToday = 4,
-                contact = "0921-555-1203"
-            ),
-            Tanod(
-                uid = "tanod_dodong",
-                barangayId = "riverside",
-                name = "Dodong Salazar",
-                badgeNumber = "TND-11",
-                availability = TanodAvailability.AVAILABLE,
-                currentLocation = LatLng(14.6540, 121.0590),
-                responseCountToday = 3,
-                contact = "0919-555-2301"
-            ),
-            Tanod(
-                uid = "tanod_junjun",
-                barangayId = "riverside",
-                name = "Junjun Perez",
-                badgeNumber = "TND-15",
-                availability = TanodAvailability.AVAILABLE,
-                currentLocation = LatLng(14.6525, 121.0620),
-                responseCountToday = 1,
-                contact = "0919-555-2302"
-            )
+    // Helper methods for Legacy Admin / Tanod / Resident screens
+    fun assignTanod(alertId: String, tanodId: String) {
+        acceptReport(alertId, "Officer Tanod")
+    }
+
+    fun updateAlertStatus(alertId: String, status: AlertStatus) {
+        when (status) {
+            AlertStatus.ASSIGNED, AlertStatus.ON_THE_WAY -> acceptReport(alertId)
+            AlertStatus.ARRIVED -> markArrived(alertId)
+            AlertStatus.RESOLVED -> resolveReport(alertId)
+            AlertStatus.CANCELLED -> removeCyberPin(alertId)
+            else -> togglePinStatus(alertId)
+        }
+    }
+
+    fun simulateIncomingAlert(category: AlertCategory = AlertCategory.CRIME) {
+        submitReport("Emergency Siren Alert", ReportCategory.FIGHTS, "Urgent assistance requested", ratioToLatLng(0.5f, 0.5f), "Poblacion Central")
+    }
+
+    fun setResidentStatus(residentId: String, status: UserStatus) {
+        _users.value = _users.value.map { if (it.uid == residentId) it.copy(status = status) else it }
+    }
+
+    fun toggleTanodAvailability(tanodId: String) {
+        _tanods.value = _tanods.value.map {
+            if (it.uid == tanodId) {
+                val next = if (it.availability == TanodAvailability.AVAILABLE) TanodAvailability.OFF_DUTY else TanodAvailability.AVAILABLE
+                it.copy(availability = next)
+            } else it
+        }
+    }
+
+    fun addTanod(name: String, mobile: String, officialId: String) {
+        val newTanod = Tanod(
+            uid = "tnd_${System.currentTimeMillis()}",
+            name = name,
+            contact = mobile,
+            badgeNumber = officialId,
+            barangayId = _confirmedBarangay.value?.id ?: "sample_hall",
+            availability = TanodAvailability.AVAILABLE
         )
-        _tanods.value = seededTanods
+        _tanods.value = _tanods.value + newTanod
+    }
 
-        // 4. Past Resolved Alerts (History)
-        val now = System.currentTimeMillis()
-        val dayMillis = 24 * 60 * 60 * 1000L
-        val pastAlerts = listOf(
-            Alert(
-                id = "ALT-88421",
-                residentId = "res_maria",
-                residentName = "Maria Santos",
-                residentMobile = "+63 917 123 4567",
-                receivingBarangayId = "sample_hall",
-                category = AlertCategory.MEDICAL,
-                note = "BP spike and severe headache, first-aid needed.",
-                location = AlertLocation(14.6530, 121.0500, "12 Acacia St., Purok 3"),
-                status = AlertStatus.RESOLVED,
-                assignedTanodId = "tanod_berto",
-                createdAt = now - (dayMillis * 3),
-                resolvedAt = now - (dayMillis * 3) + 25 * 60 * 1000,
-                rating = 5
-            ),
-            Alert(
-                id = "ALT-76192",
-                residentId = "res_maria",
-                residentName = "Maria Santos",
-                residentMobile = "+63 917 123 4567",
-                receivingBarangayId = "sample_hall",
-                category = AlertCategory.CRIME,
-                note = "Suspicious vehicle parked blocking gate past midnight.",
-                location = AlertLocation(14.6530, 121.0500, "12 Acacia St., Purok 3"),
-                status = AlertStatus.RESOLVED,
-                assignedTanodId = "tanod_lito",
-                createdAt = now - (dayMillis * 8),
-                resolvedAt = now - (dayMillis * 8) + 18 * 60 * 1000,
-                rating = 4
-            ),
-            Alert(
-                id = "ALT-54120",
-                residentId = "res_jose",
-                residentName = "Jose Reyes",
-                residentMobile = "+63 920 234 5678",
-                receivingBarangayId = "sample_hall",
-                category = AlertCategory.FLOOD,
-                note = "Drainage clogged, gutter overflow entering garage.",
-                location = AlertLocation(14.6515, 121.0480, "45 Narra Ave., Purok 1"),
-                status = AlertStatus.RESOLVED,
-                assignedTanodId = "tanod_berto",
-                createdAt = now - (dayMillis * 5),
-                resolvedAt = now - (dayMillis * 5) + 40 * 60 * 1000,
-                rating = 5
-            ),
-            Alert(
-                id = "ALT-92314",
-                residentId = "res_liza",
-                residentName = "Liza Ramos",
-                residentMobile = "+63 918 345 6789",
-                receivingBarangayId = "riverside",
-                category = AlertCategory.OTHER,
-                note = "Streetlight flickering and sparked during afternoon rain.",
-                location = AlertLocation(14.6540, 121.0600, "88 Riverside Blvd."),
-                status = AlertStatus.RESOLVED,
-                assignedTanodId = "tanod_dodong",
-                createdAt = now - (dayMillis * 2),
-                resolvedAt = now - (dayMillis * 2) + 30 * 60 * 1000,
-                rating = 5
-            )
-        )
-        _alerts.value = pastAlerts
+    fun cancelAlert(alertId: String) {
+        removeCyberPin(alertId)
+    }
 
-        // Default Dangerous Animal Alert Pins
-        _animalPins.value = listOf(
-            AnimalReportPin(
-                id = "pin_snake_cobra",
-                animalType = AnimalType.SNAKE,
-                label = "Cobra Sighted near Garden Path",
-                description = "Large dark cobra spotted slithering into overgrown bush near perimeter fence.",
-                locationName = "12 Acacia St. Alley",
-                xRatio = 0.50f,
-                yRatio = 0.44f,
-                status = PinStatus.PENDING,
-                reportedBy = "Maria Santos",
-                timestamp = System.currentTimeMillis() - (15 * 60 * 1000),
-                isPrimary = true,
-                category = "Snake"
-            ),
-            AnimalReportPin(
-                id = "pin_aggressive_dog_corner",
-                animalType = AnimalType.AGGRESSIVE_DOG,
-                label = "Aggressive Stray Dog Pack",
-                description = "Two aggressive medium-sized stray dogs barking and lunging at passing pedestrians.",
-                locationName = "Corner Purok 3 & Narra",
-                xRatio = 0.30f,
-                yRatio = 0.65f,
-                status = PinStatus.PENDING,
-                reportedBy = "Jose Reyes",
-                timestamp = System.currentTimeMillis() - (45 * 60 * 1000),
-                isPrimary = false,
-                category = "Aggressive Dog"
-            ),
-            AnimalReportPin(
-                id = "pin_dog_secured",
-                animalType = AnimalType.AGGRESSIVE_DOG,
-                label = "Aggressive Rottweiler Mix (Secured)",
-                description = "Loose aggressive dog reported. Safely captured and leashed by animal control team.",
-                locationName = "Riverside Blvd. Block 4",
-                xRatio = 0.74f,
-                yRatio = 0.30f,
-                status = PinStatus.DONE,
-                reportedBy = "Liza Ramos",
-                timestamp = System.currentTimeMillis() - (3 * 3600 * 1000),
-                resolvedAt = System.currentTimeMillis() - (1 * 3600 * 1000),
-                isPrimary = false,
-                category = "Aggressive Dog"
-            ),
-            AnimalReportPin(
-                id = "pin_python_handled",
-                animalType = AnimalType.SNAKE,
-                label = "Reticulated Python in Culvert (Cleared)",
-                description = "7-foot python discovered in open drainage. Retrieved and transferred safely to wildlife rescue.",
-                locationName = "Drainage Gate Sector 2",
-                xRatio = 0.22f,
-                yRatio = 0.26f,
-                status = PinStatus.DONE,
-                reportedBy = "Barangay Tanod Team",
-                timestamp = System.currentTimeMillis() - (6 * 3600 * 1000),
-                resolvedAt = System.currentTimeMillis() - (4 * 3600 * 1000),
-                isPrimary = false,
-                category = "Snake"
-            )
-        )
+    fun rateAlert(alertId: String, rating: Int, feedback: String? = null) {
+        // No-op or log feedback
+    }
 
-        // Default login: Maria Santos (Resident)
-        _currentUser.value = seededUsers.first { it.uid == "res_maria" }
+    fun createAlert(category: AlertCategory, description: String, location: LatLng, locationName: String) {
+        val repCat = when (category) {
+            AlertCategory.MEDICAL -> ReportCategory.DANGEROUS_ANIMALS
+            AlertCategory.FIRE -> ReportCategory.FOUL_SMELL
+            AlertCategory.CRIME -> ReportCategory.FIGHTS
+            AlertCategory.FLOOD -> ReportCategory.TRASH
+            AlertCategory.OTHER -> ReportCategory.NOISE_COMPLAINT
+        }
+        submitReport("Community Alert", repCat, description, location, locationName)
+    }
+
+    fun createAlert(
+        resident: User? = null,
+        category: AlertCategory = AlertCategory.OTHER,
+        note: String = "",
+        photoUrl: String? = null,
+        location: AlertLocation = AlertLocation(),
+        shareLiveLocation: Boolean = true
+    ) {
+        createAlert(category, note, LatLng(location.lat, location.lng), location.address)
     }
 }
+

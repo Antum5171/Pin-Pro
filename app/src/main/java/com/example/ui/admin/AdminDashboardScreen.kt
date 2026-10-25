@@ -218,7 +218,7 @@ fun AdminDashboardScreen(
             contentColor = PinProTextPrimary,
             edgePadding = 12.dp,
             indicator = { tabPositions ->
-                TabRowDefaults.Indicator(
+                TabRowDefaults.SecondaryIndicator(
                     modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab.ordinal]),
                     color = PinProNeonGreen,
                     height = 3.dp
@@ -254,7 +254,7 @@ fun AdminDashboardScreen(
                     onSelectAlert = { selectedAlertId = it.id },
                     onAssignTanod = { alertId, tanodId -> repository.assignTanod(alertId, tanodId) },
                     onUpdateStatus = { alertId, status -> repository.updateAlertStatus(alertId, status) },
-                    onSimulateAlert = { repository.simulateIncomingAlert(myBarangayId) }
+                    onSimulateAlert = { repository.simulateIncomingAlert() }
                 )
             }
             AdminTab.RESIDENTS -> {
@@ -269,7 +269,7 @@ fun AdminDashboardScreen(
                 AdminTanodsView(
                     tanods = barangayTanods,
                     onToggleAvailability = { tanodId, avail ->
-                        repository.toggleTanodAvailability(tanodId, avail)
+                        repository.toggleTanodAvailability(tanodId)
                     },
                     onAddTanod = { name, badge ->
                         repository.addTanod(myBarangayId, name, badge)

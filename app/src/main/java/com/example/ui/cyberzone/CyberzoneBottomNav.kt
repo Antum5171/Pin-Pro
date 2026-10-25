@@ -74,12 +74,31 @@ fun CyberzoneBottomNav(
             .border(1.dp, CyberzoneBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
             .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
+        // Glowing Top Edge Accent Line
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            CyberzoneElectricGreen.copy(alpha = 0.5f),
+                            CyberzoneElectricGreen,
+                            CyberzoneElectricGreen.copy(alpha = 0.5f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
+                .height(60.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -188,18 +207,15 @@ fun CyberNavItem(
             )
         }
 
-        Spacer(modifier = Modifier.height(3.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
-        // Glowing Neon Indicator Dot / Label
-        if (isSelected) {
-            Box(
-                modifier = Modifier
-                    .size(4.dp)
-                    .clip(CircleShape)
-                    .background(CyberzoneElectricGreen)
-            )
-        } else {
-            Box(modifier = Modifier.size(4.dp))
-        }
+        // Text label under icon
+        Text(
+            text = label,
+            fontFamily = InterFontFamily,
+            fontSize = 11.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            color = if (isSelected) CyberzoneElectricGreen else CyberzoneTextMuted
+        )
     }
 }

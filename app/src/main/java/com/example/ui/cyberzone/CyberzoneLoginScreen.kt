@@ -10,6 +10,9 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,11 +21,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -132,70 +138,49 @@ fun CyberzoneLoginScreen(
         label = "glowAlpha"
     )
 
+    var selectedDemoRole by remember { mutableStateOf("Resident") }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(CyberzoneBackground)
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .imePadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 24.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Brand Header with Neon Touch
+            // Brand Header with clean styling
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(vertical = 12.dp)
+                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
             ) {
-                Box(
+                Image(
+                    painter = painterResource(id = R.drawable.logo),
+                    contentDescription = "PinPro Logo",
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                listOf(
-                                    CyberzoneElectricGreen.copy(alpha = glowAlpha),
-                                    Color.Transparent
-                                )
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .clip(CircleShape)
-                            .background(CyberzoneSurface)
-                            .border(1.5.dp, CyberzoneElectricGreen, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "P",
-                            fontFamily = InterFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 28.sp,
-                            color = CyberzoneElectricGreen
-                        )
-                    }
-                }
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
                     text = "PinPro",
                     fontFamily = InterFontFamily,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 28.sp,
+                    fontSize = 26.sp,
                     color = CyberzoneTextPrimary
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -206,17 +191,17 @@ fun CyberzoneLoginScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "ANIMAL HAZARD RADAR",
+                        text = "Barangay Report Tracking System",
                         fontFamily = InterFontFamily,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 12.sp,
-                        letterSpacing = 1.5.sp,
+                        letterSpacing = 0.5.sp,
                         color = CyberzoneElectricGreen
                     )
                 }
 
                 Text(
-                    text = "Community dangerous animal alerts & neighborhood tracking",
+                    text = "Report community concerns and track official response in real time",
                     fontFamily = InterFontFamily,
                     fontSize = 12.sp,
                     color = CyberzoneTextSecondary,
@@ -229,20 +214,14 @@ fun CyberzoneLoginScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // 1. Google Sign-In Button (Primary Auth Provider)
+                // 1. Google Sign-In Button (Clean neutral button, subtle border, no glow)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
-                        .shadow(
-                            elevation = 14.dp,
-                            shape = RoundedCornerShape(16.dp),
-                            spotColor = CyberzoneElectricGreen,
-                            ambientColor = CyberzoneElectricGreen
-                        )
-                        .clip(RoundedCornerShape(16.dp))
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(CyberzoneSurface)
-                        .border(1.5.dp, CyberzoneElectricGreen, RoundedCornerShape(16.dp))
+                        .border(1.dp, CyberzoneBorder, RoundedCornerShape(12.dp))
                         .clickable(enabled = !isGoogleLoading) {
                             errorMessage = null
                             isGoogleLoading = true
@@ -269,7 +248,7 @@ fun CyberzoneLoginScreen(
                     if (isGoogleLoading) {
                         CircularProgressIndicator(
                             color = CyberzoneElectricGreen,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp
                         )
                     } else {
@@ -280,16 +259,15 @@ fun CyberzoneLoginScreen(
                             Icon(
                                 imageVector = Icons.Default.AccountCircle,
                                 contentDescription = "Google Icon",
-                                tint = CyberzoneElectricGreen,
-                                modifier = Modifier.size(22.dp)
+                                tint = CyberzoneTextPrimary,
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "Sign in with Google",
                                 fontFamily = InterFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                letterSpacing = 0.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
                                 color = CyberzoneTextPrimary
                             )
                         }
@@ -300,7 +278,7 @@ fun CyberzoneLoginScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                        .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
@@ -310,10 +288,10 @@ fun CyberzoneLoginScreen(
                             .background(CyberzoneBorder)
                     )
                     Text(
-                        text = "OR COMMUNITY LOGIN",
+                        text = "OR DEMO / COMMUNITY LOGIN",
                         fontFamily = InterFontFamily,
-                        fontSize = 11.sp,
-                        letterSpacing = 1.sp,
+                        fontSize = 10.sp,
+                        letterSpacing = 0.8.sp,
                         color = CyberzoneTextMuted,
                         modifier = Modifier.padding(horizontal = 12.dp)
                     )
@@ -323,6 +301,58 @@ fun CyberzoneLoginScreen(
                             .height(1.dp)
                             .background(CyberzoneBorder)
                     )
+                }
+
+                // Quick Demo Login Segmented Control (44px+ tall, clearly labeled)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Quick demo login",
+                        fontFamily = InterFontFamily,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = CyberzoneTextMuted,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CyberzoneSurfaceElevated)
+                            .border(1.dp, CyberzoneBorder, RoundedCornerShape(12.dp))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf(
+                            Triple("Resident", "resident@pinpro.ph", "pinpro2026"),
+                            Triple("Official", "official@pinpro.ph", "pinpro2026")
+                        ).forEach { (roleLabel, email, pwd) ->
+                            val isSelected = selectedDemoRole == roleLabel
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) CyberzoneElectricGreen else Color.Transparent)
+                                    .clickable {
+                                        selectedDemoRole = roleLabel
+                                        emailOrUsername = email
+                                        password = pwd
+                                        errorMessage = null
+                                    }
+                                    .testTag("demo_role_${roleLabel.lowercase()}"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = roleLabel,
+                                    fontFamily = InterFontFamily,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 13.sp,
+                                    color = if (isSelected) Color.Black else CyberzoneTextSecondary
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Email / Username Input
@@ -400,38 +430,11 @@ fun CyberzoneLoginScreen(
                         modifier = Modifier.padding(start = 4.dp)
                     )
                 }
-
-                // Quick Demo Autofill Chips
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Demo profiles",
-                        fontFamily = InterFontFamily,
-                        fontSize = 12.sp,
-                        color = CyberzoneTextMuted
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DemoAutoFillChip(label = "Resident") {
-                            emailOrUsername = "resident@pinpro.ph"
-                            password = "pinpro2026"
-                        }
-                        DemoAutoFillChip(label = "Animal Control") {
-                            emailOrUsername = "responder@pinpro.ph"
-                            password = "pinpro2026"
-                        }
-                    }
-                }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Community Login Action Button
+            // Primary Log in Button in Solid Green
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -439,8 +442,8 @@ fun CyberzoneLoginScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(CyberzoneElectricGreen)
                         .clickable(
                             enabled = emailOrUsername.isNotBlank(),
@@ -453,11 +456,10 @@ fun CyberzoneLoginScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "LOG IN TO PINPRO",
+                        text = "Log in",
                         fontFamily = InterFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
-                        letterSpacing = 1.sp,
                         color = Color(0xFF121212)
                     )
                 }
@@ -465,7 +467,7 @@ fun CyberzoneLoginScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "PinPro Alert Radar • Neighborhood Protection",
+                    text = "PinPro • Barangay Report Tracking",
                     fontFamily = InterFontFamily,
                     fontSize = 12.sp,
                     color = CyberzoneTextMuted
